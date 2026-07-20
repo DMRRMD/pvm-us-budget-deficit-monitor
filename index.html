@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>U.S. Treasury Wire — Debt &amp; Auction Monitor · PVM Research</title>
+<meta name="description" content="Live U.S. federal debt outstanding and Treasury auction calendar, sourced directly from fiscaldata.treasury.gov and treasurydirect.gov.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:      #efe7d3;
+    --paper-2:    #e6dcbf;
+    --paper-3:    #ddd2ae;
+    --ink:        #17140f;
+    --ink-2:      #4b4436;
+    --ink-3:      #756c58;
+    --seal:       #1e4b3a;
+    --seal-2:     #2e6e54;
+    --seal-tint:  #dfe8df;
+    --brass:      #9c7a34;
+    --brass-2:    #c7a355;
+    --stamp:      #9c2b2b;
+    --stamp-tint: #f1dcd6;
+    --rule:       #c7bc9c;
+    --rule-2:     #b3a680;
+    --shadow:     rgba(23,20,15,0.16);
+    --radius:     2px;
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  }
+
+  *{ box-sizing:border-box; }
+  html{ scroll-behavior:smooth; }
+  body{
+    margin:0;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.35), rgba(255,255,255,0) 220px),
+      var(--paper);
+    background-attachment:fixed;
+    color:var(--ink);
+    font-family:var(--serif);
+    font-size:16px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; scroll-behavior:auto !important; }
+  }
+
+  a{ color:var(--seal); }
+  a:focus-visible, button:focus-visible, .refresh-btn:focus-visible{
+    outline:2px solid var(--seal); outline-offset:2px;
+  }
+
+  .wrap{ max-width:1080px; margin:0 auto; padding:0 20px 80px; }
+
+  /* ---------- Masthead ---------- */
+  .masthead{
+    background:var(--ink);
+    color:var(--paper);
+    border-bottom:6px solid var(--seal);
+  }
+  .masthead-inner{
+    max-width:1080px; margin:0 auto; padding:22px 20px 16px;
+    display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-mark{
+    width:34px; height:34px; border-radius:50%;
+    border:2px solid var(--brass-2);
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-weight:700; font-size:13px; color:var(--brass-2);
+    flex:none;
+  }
+  .brand-text .eyebrow{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:0.16em; text-transform:uppercase;
+    color:var(--brass-2); margin:0 0 4px;
+  }
+  .brand-text h1{
+    font-family:var(--mono); font-weight:700; font-size:clamp(22px,4vw,32px);
+    letter-spacing:0.03em; margin:0; text-transform:uppercase;
+  }
+  .masthead-meta{
+    font-family:var(--mono); font-size:11.5px; color:var(--paper-3, #ddd2ae);
+    text-align:right; line-height:1.6;
+  }
+  .live-dot{
+    display:inline-block; width:7px; height:7px; border-radius:50%;
+    background:#5fbf8f; margin-right:6px; position:relative; top:-1px;
+    box-shadow:0 0 0 0 rgba(95,191,143,0.6);
+    animation:pulse 2.4s infinite;
+  }
+  @keyframes pulse{
+    0%{ box-shadow:0 0 0 0 rgba(95,191,143,0.55); }
+    70%{ box-shadow:0 0 0 6px rgba(95,191,143,0); }
+    100%{ box-shadow:0 0 0 0 rgba(95,191,143,0); }
+  }
+  .dek-bar{
+    background:var(--seal); color:var(--seal-tint);
+    font-family:var(--mono); font-size:11.5px; letter-spacing:0.03em;
+  }
+  .dek-bar-inner{
+    max-width:1080px; margin:0 auto; padding:7px 20px;
+    display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+  .dek-bar a{ color:var(--seal-tint); text-decoration:underline; text-underline-offset:2px; }
+
+  /* ---------- Section scaffolding ---------- */
+  section{ margin-top:52px; }
+  .section-head{
+    display:flex; align-items:baseline; gap:14px; margin-bottom:18px;
+    border-bottom:2px solid var(--ink); padding-bottom:8px;
+  }
+  .section-head .tag{
+    font-family:var(--mono); font-size:11px; letter-spacing:0.14em; text-transform:uppercase;
+    background:var(--ink); color:var(--paper); padding:3px 8px; border-radius:2px; flex:none;
+  }
+  .section-head h2{
+    font-family:var(--serif); font-weight:700; font-style:italic; font-size:22px; margin:0;
+  }
+  .section-head .spacer{ flex:1; border-bottom:1px dashed var(--rule-2); align-self:center; height:0; }
+  .section-note{ font-size:13.5px; color:var(--ink-2); margin:-8px 0 20px; }
+
+  /* ---------- Hero / odometer ---------- */
+  .hero{
+    display:grid; grid-template-columns:1.5fr 1fr; gap:0;
+    border:1px solid var(--ink); background:var(--paper-2);
+    box-shadow:5px 5px 0 var(--shadow);
+  }
+  @media (max-width:760px){ .hero{ grid-template-columns:1fr; } }
+  .hero-main{ padding:26px 26px 22px; border-right:1px solid var(--rule); }
+  @media (max-width:760px){ .hero-main{ border-right:none; border-bottom:1px solid var(--rule); } }
+  .hero-label{
+    font-family:var(--mono); font-size:11px; letter-spacing:0.14em; text-transform:uppercase;
+    color:var(--ink-3); margin:0 0 10px;
+  }
+  .odometer{
+    display:flex; flex-wrap:wrap; gap:6px; align-items:baseline;
+  }
+  .odo-group{
+    display:flex; background:var(--ink); border-radius:3px; overflow:hidden;
+    box-shadow:inset 0 0 0 1px #000, 0 1px 0 var(--brass-2);
+  }
+  .odo-digit{
+    font-family:var(--mono); font-weight:700; font-size:clamp(26px,4.6vw,42px);
+    color:#f2ead0; background:var(--ink);
+    width:0.72em; text-align:center; padding:6px 2px;
+    border-right:1px solid #000;
+    font-variant-numeric:tabular-nums;
+  }
+  .odo-digit:last-child{ border-right:none; }
+  .odo-usd{
+    font-family:var(--mono); font-weight:700; font-size:clamp(22px,3.6vw,32px); color:var(--ink-3);
+    margin-right:2px;
+  }
+  .hero-asof{
+    font-family:var(--mono); font-size:12px; color:var(--ink-2); margin-top:12px;
+  }
+  .hero-asof strong{ color:var(--ink); }
+  .hero-delta{
+    display:inline-flex; align-items:center; gap:6px; margin-top:14px;
+    font-family:var(--mono); font-size:13px; padding:5px 10px; border-radius:3px;
+    background:var(--stamp-tint); color:var(--stamp); border:1px solid var(--stamp);
+    transform:rotate(-1deg);
+  }
+  .hero-delta.pos{ background:var(--stamp-tint); }
+  .hero-side{ padding:22px 24px; display:flex; flex-direction:column; gap:16px; justify-content:center; }
+  .stat-row{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; border-bottom:1px dotted var(--rule-2); padding-bottom:10px; }
+  .stat-row:last-child{ border-bottom:none; padding-bottom:0; }
+  .stat-row .k{ font-family:var(--mono); font-size:11.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-2); }
+  .stat-row .v{ font-family:var(--mono); font-weight:600; font-size:17px; color:var(--ink); text-align:right; }
+  .stat-row .v small{ font-weight:400; color:var(--ink-3); font-size:11px; display:block; }
+
+  /* ---------- Chart ---------- */
+  .chart-card{
+    border:1px solid var(--ink); background:var(--paper-2); padding:20px 22px 10px;
+    box-shadow:5px 5px 0 var(--shadow);
+  }
+  .chart-card svg{ width:100%; height:auto; display:block; }
+  .chart-legend{ display:flex; gap:18px; flex-wrap:wrap; font-family:var(--mono); font-size:11.5px; color:var(--ink-2); margin-top:4px; padding-bottom:14px; }
+  .chart-legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .swatch{ width:10px; height:10px; border-radius:2px; display:inline-block; }
+
+  /* ---------- Tables ---------- */
+  .table-card{ border:1px solid var(--ink); background:var(--paper-2); box-shadow:5px 5px 0 var(--shadow); overflow-x:auto; }
+  table{ width:100%; border-collapse:collapse; font-family:var(--mono); font-size:13px; min-width:640px; }
+  thead th{
+    text-align:left; font-weight:600; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--paper); background:var(--ink); padding:9px 12px; position:sticky; top:0;
+  }
+  tbody td{ padding:10px 12px; border-bottom:1px solid var(--rule); color:var(--ink); white-space:nowrap; }
+  tbody tr:nth-child(odd){ background:rgba(255,255,255,0.28); }
+  tbody tr.next-up{ background:var(--seal-tint); }
+  tbody tr.next-up td:first-child{ border-left:4px solid var(--seal); }
+  .pill{
+    display:inline-block; font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:2px;
+    border:1px solid currentColor;
+  }
+  .pill.bill{ color:var(--brass); }
+  .pill.note{ color:var(--seal); }
+  .pill.bond{ color:var(--stamp); }
+  .pill.tips, .pill.frn{ color:var(--ink-2); }
+  .countdown{ font-weight:700; }
+  .muted{ color:var(--ink-3); }
+  .num{ text-align:right; font-variant-numeric:tabular-nums; }
+
+  .state-row td{ font-family:var(--serif); font-style:italic; color:var(--ink-2); white-space:normal; }
+
+  /* ---------- Footer ---------- */
+  footer{
+    margin-top:70px; padding-top:20px; border-top:2px solid var(--ink);
+    font-family:var(--mono); font-size:11.5px; color:var(--ink-2);
+    display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  }
+  footer .disclaimer{ max-width:640px; }
+  .refresh-btn{
+    font-family:var(--mono); font-size:11.5px; letter-spacing:0.05em; text-transform:uppercase;
+    background:var(--ink); color:var(--paper); border:1px solid var(--ink); padding:8px 14px;
+    border-radius:2px; cursor:pointer;
+  }
+  .refresh-btn:hover{ background:var(--seal); border-color:var(--seal); }
+  .refresh-btn:disabled{ opacity:0.55; cursor:progress; }
+
+  .skeleton{ color:var(--ink-3); font-style:italic; }
+  .error-note{ color:var(--stamp); font-style:italic; }
+
+  .stamp-badge{
+    display:inline-block; font-family:var(--mono); font-size:10px; letter-spacing:0.08em;
+    color:var(--stamp); border:2px solid var(--stamp); border-radius:3px; padding:1px 6px;
+    transform:rotate(-3deg); text-transform:uppercase;
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="brand">
+      <div class="brand-mark">UST</div>
+      <div class="brand-text">
+        <p class="eyebrow">Fiscal Research Desk</p>
+        <h1>U.S. Treasury Wire</h1>
+      </div>
+    </div>
+    <div class="masthead-meta">
+      <div><span class="live-dot"></span>DATA LIVE — DIRECT FROM SOURCE</div>
+      <div id="clock">—</div>
+    </div>
+  </div>
+</header>
+<div class="dek-bar">
+  <div class="dek-bar-inner">
+    <span>Debt &amp; Auction Monitor — compiled for Pure Value Metrics research use</span>
+    <span>Sources: <a href="https://fiscaldata.treasury.gov/datasets/debt-to-the-penny/" target="_blank" rel="noopener">fiscaldata.treasury.gov</a> · <a href="https://www.treasurydirect.gov/auctions/" target="_blank" rel="noopener">treasurydirect.gov</a></span>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ================= DEBT OVERVIEW ================= -->
+  <section id="overview">
+    <div class="section-head">
+      <span class="tag">01</span>
+      <h2>Total Public Debt Outstanding</h2>
+      <span class="spacer"></span>
+    </div>
+
+    <div class="hero">
+      <div class="hero-main">
+        <p class="hero-label">Debt to the Penny — official daily figure</p>
+        <div class="odometer" id="odometer" aria-live="polite">
+          <span class="odo-usd">$</span>
+          <span class="skeleton" id="odo-loading">loading latest figure…</span>
+        </div>
+        <p class="hero-asof" id="asof-line">as of — · fetched —</p>
+        <div id="delta-badge"></div>
+      </div>
+      <div class="hero-side">
+        <div class="stat-row">
+          <span class="k">Held by the public</span>
+          <span class="v" id="stat-public">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="k">Intragovernmental holdings</span>
+          <span class="v" id="stat-intragov">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="k">Public share of total</span>
+          <span class="v" id="stat-share">—</span>
+        </div>
+      </div>
+    </div>
+
+    <p class="section-note">Figures are drawn unrounded from Treasury's Debt to the Penny dataset, updated each business day. No projection or same-day estimate is shown between official updates.</p>
+
+    <div class="chart-card">
+      <div id="chart-mount"><p class="skeleton">Drawing trailing 12-month trend…</p></div>
+      <div class="chart-legend">
+        <span><i class="swatch" style="background:var(--seal-2)"></i>Total public debt outstanding, trailing ~12 months</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= UPCOMING AUCTIONS ================= -->
+  <section id="upcoming">
+    <div class="section-head">
+      <span class="tag">02</span>
+      <h2>Upcoming Auction Calendar</h2>
+      <span class="spacer"></span>
+    </div>
+    <p class="section-note">Currently announced Treasury marketable securities auctions — bills, notes, bonds, FRNs and TIPS — not yet auctioned.</p>
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>Auction date</th>
+            <th>Security</th>
+            <th>Term</th>
+            <th>CUSIP</th>
+            <th>Announced</th>
+            <th>Issue date</th>
+            <th class="num">Offering amt</th>
+            <th>Countdown</th>
+          </tr>
+        </thead>
+        <tbody id="upcoming-body">
+          <tr class="state-row"><td colspan="8">Retrieving announced auctions from TreasuryDirect…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= RECENT RESULTS ================= -->
+  <section id="results">
+    <div class="section-head">
+      <span class="tag">03</span>
+      <h2>Recent Auction Results</h2>
+      <span class="spacer"></span>
+    </div>
+    <p class="section-note">Completed auctions from the trailing 45 days, most recent first.</p>
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>Auction date</th>
+            <th>Security</th>
+            <th>Term</th>
+            <th>CUSIP</th>
+            <th class="num">High rate / yield</th>
+            <th class="num">Bid-to-cover</th>
+            <th class="num">Total accepted</th>
+          </tr>
+        </thead>
+        <tbody id="results-body">
+          <tr class="state-row"><td colspan="7">Retrieving recent results from TreasuryDirect…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <div class="disclaimer">
+      Built for internal research reference only — not investment advice. All figures are fetched client-side, at page load, directly from the U.S. Department of the Treasury's public APIs (fiscaldata.treasury.gov and treasurydirect.gov). PVM does not warrant the accuracy or timeliness of third-party data. <span id="last-refresh"></span>
+    </div>
+    <button class="refresh-btn" id="refresh-btn" type="button">Refresh now</button>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const FISCAL_BASE = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service";
+  const TD_BASE = "https://www.treasurydirect.gov/TA_WS/securities";
+  const TREND_DAYS = 380;
+  const RESULTS_WINDOW_DAYS = 45;
+  const AUTO_REFRESH_MS = 15 * 60 * 1000;
+
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- small formatters ----------
+  function fmtUSD(n, opts){
+    opts = opts || {};
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    if (opts.compact){
+      const abs = Math.abs(n);
+      if (abs >= 1e12) return "$" + (n/1e12).toFixed(2) + "T";
+      if (abs >= 1e9)  return "$" + (n/1e9).toFixed(2) + "B";
+      if (abs >= 1e6)  return "$" + (n/1e6).toFixed(2) + "M";
+    }
+    return "$" + Math.round(n).toLocaleString("en-US");
+  }
+  function fmtDate(d){
+    if (!d) return "—";
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt.getTime())) return "—";
+    return dt.toLocaleDateString("en-US", { day:"2-digit", month:"short", year:"numeric", timeZone:"UTC" });
+  }
+  function parseTDDate(s){
+    if (!s) return null;
+    const dt = new Date(s);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+  function daysBetween(a, b){
+    const MS = 86400000;
+    return Math.round((a.getTime() - b.getTime()) / MS);
+  }
+  function pillClass(type){
+    if (!type) return "";
+    const t = type.toLowerCase();
+    if (t.includes("bill")) return "bill";
+    if (t.includes("note")) return "note";
+    if (t.includes("bond")) return "bond";
+    if (t.includes("tips")) return "tips";
+    if (t.includes("frn")) return "frn";
+    return "";
+  }
+  function firstNum(obj, keys){
+    for (const k of keys){
+      const v = obj[k];
+      if (v !== undefined && v !== null && v !== ""){
+        const n = parseFloat(v);
+        if (!isNaN(n)) return n;
+      }
+    }
+    return null;
+  }
+
+  // ---------- clock ----------
+  function tickClock(){
+    const now = new Date();
+    $("clock").textContent = now.toLocaleString("en-GB", {
+      timeZone:"UTC", hour:"2-digit", minute:"2-digit", second:"2-digit",
+      day:"2-digit", month:"short", year:"numeric"
+    }) + " UTC";
+  }
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  // ---------- odometer ----------
+  function renderOdometer(target){
+    const mount = $("odometer");
+    const loading = $("odo-loading");
+    if (loading) loading.remove();
+    const digits = Math.round(target).toLocaleString("en-US").replace(/,/g, " ").split(" ");
+    mount.querySelectorAll(".odo-group").forEach(g => g.remove());
+    digits.forEach(group => {
+      const g = document.createElement("span");
+      g.className = "odo-group";
+      [...group].forEach(ch => {
+        const d = document.createElement("span");
+        d.className = "odo-digit";
+        d.textContent = ch;
+        g.appendChild(d);
+      });
+      mount.appendChild(g);
+    });
+  }
+
+  // ---------- chart (inline SVG line + area) ----------
+  function renderChart(points){
+    const mount = $("chart-mount");
+    if (!points.length){
+      mount.innerHTML = '<p class="error-note">Trend data unavailable.</p>';
+      return;
+    }
+    const W = 1000, H = 260, PAD_L = 70, PAD_R = 16, PAD_T = 16, PAD_B = 30;
+    const values = points.map(p => p.v);
+    const min = Math.min(...values), max = Math.max(...values);
+    const range = (max - min) || 1;
+    const x = (i) => PAD_L + (i / (points.length - 1)) * (W - PAD_L - PAD_R);
+    const y = (v) => PAD_T + (1 - (v - min) / range) * (H - PAD_T - PAD_B);
+
+    let line = "", area = "";
+    points.forEach((p, i) => {
+      const cmd = i === 0 ? "M" : "L";
+      line += `${cmd}${x(i).toFixed(1)},${y(p.v).toFixed(1)} `;
+    });
+    area = `M${x(0).toFixed(1)},${(H - PAD_B).toFixed(1)} ` + line + `L${x(points.length-1).toFixed(1)},${(H - PAD_B).toFixed(1)} Z`;
+
+    const gridLines = 4;
+    let grid = "";
+    for (let i = 0; i <= gridLines; i++){
+      const gy = PAD_T + (i / gridLines) * (H - PAD_T - PAD_B);
+      const val = max - (i / gridLines) * range;
+      grid += `<line x1="${PAD_L}" y1="${gy.toFixed(1)}" x2="${W-PAD_R}" y2="${gy.toFixed(1)}" stroke="var(--rule)" stroke-width="1"/>`;
+      grid += `<text x="${PAD_L - 10}" y="${(gy+4).toFixed(1)}" text-anchor="end" font-family="var(--mono)" font-size="10.5" fill="var(--ink-3)">${fmtUSD(val,{compact:true})}</text>`;
+    }
+
+    const firstDate = fmtDate(points[0].d);
+    const lastDate = fmtDate(points[points.length-1].d);
+
+    mount.innerHTML = `
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Trailing debt trend chart">
+        <defs>
+          <linearGradient id="fillGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--seal-2)" stop-opacity="0.38"/>
+            <stop offset="100%" stop-color="var(--seal-2)" stop-opacity="0.02"/>
+          </linearGradient>
+        </defs>
+        ${grid}
+        <path d="${area}" fill="url(#fillGrad)" stroke="none"/>
+        <path d="${line}" fill="none" stroke="var(--seal)" stroke-width="2"/>
+        <text x="${PAD_L}" y="${H-8}" font-family="var(--mono)" font-size="10.5" fill="var(--ink-3)">${firstDate}</text>
+        <text x="${W-PAD_R}" y="${H-8}" text-anchor="end" font-family="var(--mono)" font-size="10.5" fill="var(--ink-3)">${lastDate}</text>
+      </svg>`;
+  }
+
+  // ---------- fetch: debt to the penny ----------
+  async function loadDebt(){
+    const url = `${FISCAL_BASE}/v2/accounting/od/debt_to_penny?fields=record_date,tot_pub_debt_out_amt,debt_held_public_amt,intragov_hold_amt&sort=-record_date&page[size]=${TREND_DAYS}&page[number]=1`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("debt_to_penny HTTP " + res.status);
+    const json = await res.json();
+    const rows = json.data || [];
+    if (!rows.length) throw new Error("empty debt series");
+
+    const latest = rows[0];
+    const prior = rows[1] || null;
+
+    const total = parseFloat(latest.tot_pub_debt_out_amt);
+    const heldPublic = parseFloat(latest.debt_held_public_amt);
+    const intragov = parseFloat(latest.intragov_hold_amt);
+
+    renderOdometer(total);
+    $("asof-line").innerHTML = `as of <strong>${fmtDate(latest.record_date)}</strong> · fetched <strong>${new Date().toUTCString().slice(0,22)} UTC</strong>`;
+    $("stat-public").innerHTML = fmtUSD(heldPublic, {compact:true}) + `<small>${fmtUSD(heldPublic)}</small>`;
+    $("stat-intragov").innerHTML = fmtUSD(intragov, {compact:true}) + `<small>${fmtUSD(intragov)}</small>`;
+    $("stat-share").textContent = ((heldPublic/total)*100).toFixed(1) + "%";
+
+    if (prior){
+      const priorTotal = parseFloat(prior.tot_pub_debt_out_amt);
+      const delta = total - priorTotal;
+      const sign = delta >= 0 ? "+" : "−";
+      $("delta-badge").innerHTML = `<span class="hero-delta"><span class="stamp-badge">Δ 1 day</span> ${sign} ${fmtUSD(Math.abs(delta),{compact:true})} vs ${fmtDate(prior.record_date)}</span>`;
+    }
+
+    // trend chart, oldest -> newest
+    const points = rows.slice().reverse().map(r => ({ d: r.record_date, v: parseFloat(r.tot_pub_debt_out_amt) }));
+    renderChart(points);
+  }
+
+  // ---------- fetch: upcoming auctions ----------
+  async function loadUpcoming(){
+    const body = $("upcoming-body");
+    const url = `${TD_BASE}/announced?format=json`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("announced HTTP " + res.status);
+    let rows = await res.json();
+    if (!Array.isArray(rows)) rows = [];
+
+    const now = new Date();
+    rows = rows
+      .map(r => ({ raw:r, auctionDate: parseTDDate(r.auctionDate) }))
+      .filter(r => r.auctionDate && r.auctionDate >= new Date(now.toDateString()))
+      .sort((a,b) => a.auctionDate - b.auctionDate)
+      .slice(0, 24);
+
+    if (!rows.length){
+      body.innerHTML = '<tr class="state-row"><td colspan="8">No currently announced auctions were returned by TreasuryDirect.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map((r, idx) => {
+      const raw = r.raw;
+      const offering = firstNum(raw, ["offeringAmount","currentlyOutstanding"]);
+      const days = daysBetween(r.auctionDate, new Date(now.toDateString()));
+      const countdown = days === 0 ? "Today" : days === 1 ? "Tomorrow" : `T−${days}d`;
+      return `<tr class="${idx === 0 ? 'next-up' : ''}">
+        <td>${fmtDate(raw.auctionDate)}</td>
+        <td><span class="pill ${pillClass(raw.securityType)}">${raw.securityType || "—"}</span></td>
+        <td>${raw.securityTerm || "—"}</td>
+        <td>${raw.cusip || "—"}</td>
+        <td class="muted">${fmtDate(raw.announcementDate)}</td>
+        <td>${fmtDate(raw.issueDate)}</td>
+        <td class="num">${offering !== null ? fmtUSD(offering,{compact:true}) : "—"}</td>
+        <td class="countdown">${countdown}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  // ---------- fetch: recent results ----------
+  async function loadResults(){
+    const body = $("results-body");
+    const today = new Date();
+    const start = new Date(today.getTime() - RESULTS_WINDOW_DAYS*86400000);
+    const fmt = (d) => d.toISOString().slice(0,10);
+    const url = `${TD_BASE}/search?format=json&startdate=${fmt(start)}&enddate=${fmt(today)}`;
+    const res = await fetch(url, { cache:"no-store" });
+    if (!res.ok) throw new Error("search HTTP " + res.status);
+    let rows = await res.json();
+    if (!Array.isArray(rows)) rows = [];
+
+    rows = rows
+      .map(r => ({ raw:r, auctionDate: parseTDDate(r.auctionDate) }))
+      .filter(r => {
+        if (!r.auctionDate || r.auctionDate > today) return false;
+        const yieldVal = firstNum(r.raw, ["highYield","highDiscountRate","highInvestmentRate","highDiscountMargin"]);
+        return yieldVal !== null;
+      })
+      .sort((a,b) => b.auctionDate - a.auctionDate);
+
+    // de-dupe by cusip, keep most recent
+    const seen = new Set();
+    rows = rows.filter(r => {
+      if (seen.has(r.raw.cusip)) return false;
+      seen.add(r.raw.cusip);
+      return true;
+    }).slice(0, 20);
+
+    if (!rows.length){
+      body.innerHTML = '<tr class="state-row"><td colspan="7">No completed auctions were returned for the trailing window.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(r => {
+      const raw = r.raw;
+      const yieldVal = firstNum(raw, ["highYield","highDiscountRate","highInvestmentRate","highDiscountMargin"]);
+      const btc = firstNum(raw, ["bidToCoverRatio"]);
+      const accepted = firstNum(raw, ["totalAccepted","competitiveAccepted"]);
+      return `<tr>
+        <td>${fmtDate(raw.auctionDate)}</td>
+        <td><span class="pill ${pillClass(raw.securityType)}">${raw.securityType || "—"}</span></td>
+        <td>${raw.securityTerm || "—"}</td>
+        <td>${raw.cusip || "—"}</td>
+        <td class="num">${yieldVal !== null ? yieldVal.toFixed(3) + "%" : "—"}</td>
+        <td class="num">${btc !== null ? btc.toFixed(2) : "—"}</td>
+        <td class="num">${accepted !== null ? fmtUSD(accepted,{compact:true}) : "—"}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function loadAll(){
+    const btn = $("refresh-btn");
+    btn.disabled = true;
+    btn.textContent = "Refreshing…";
+
+    const results = await Promise.allSettled([ loadDebt(), loadUpcoming(), loadResults() ]);
+    results.forEach((r, i) => {
+      if (r.status === "rejected"){
+        const labels = ["debt overview","upcoming auctions","recent results"];
+        console.error("Failed to load " + labels[i] + ":", r.reason);
+        if (i === 0){
+          $("odo-loading") && ($("odo-loading").textContent = "figure unavailable — see fiscaldata.treasury.gov");
+          $("asof-line").innerHTML = '<span class="error-note">Could not reach fiscaldata.treasury.gov from this browser.</span>';
+        }
+        if (i === 1) $("upcoming-body").innerHTML = '<tr class="state-row"><td colspan="8" class="error-note">Could not reach treasurydirect.gov from this browser — open the source directly at treasurydirect.gov/auctions.</td></tr>';
+        if (i === 2) $("results-body").innerHTML = '<tr class="state-row"><td colspan="7" class="error-note">Could not reach treasurydirect.gov from this browser — open the source directly at treasurydirect.gov/auctions.</td></tr>';
+      }
+    });
+
+    $("last-refresh").textContent = "Last refreshed " + new Date().toUTCString().slice(0,22) + " UTC.";
+    btn.disabled = false;
+    btn.textContent = "Refresh now";
+  }
+
+  $("refresh-btn").addEventListener("click", loadAll);
+  loadAll();
+  setInterval(loadAll, AUTO_REFRESH_MS);
+})();
+</script>
+</body>
+</html>
