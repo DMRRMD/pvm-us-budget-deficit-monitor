@@ -1,26 +1,39 @@
 name: Update Treasury Data
-
+ 
 # TreasuryDirect's TA_WS API doesn't send CORS headers, so a browser on
 # GitHub Pages can't call it directly. This job calls it from a GitHub-hosted
 # runner instead (server-to-server, no CORS involved) and commits the result
 # into /data as plain JSON, which the static page then reads same-origin.
-
+ 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # roughly every 30 minutes (GitHub may delay this a bit)
+    - cron: "*/30 * * * *"   # all-day baseline (GitHub may delay this a bit)
+    # Tight windows around Treasury's actual result-announcement times, so
+    # results land in data/results.json within ~2 minutes instead of waiting
+    # for the next 30-minute tick. Bills are usually released ~11:30am ET;
+    # notes/bonds/TIPS/FRNs ~1:00pm ET. Each has two entries below — one for
+    # EDT (UTC-4, roughly Mar-Nov) and one for EST (UTC-5, roughly Nov-Mar) —
+    # so this doesn't need manual adjustment across the twice-yearly clock
+    # change; the "wrong" one for the current season just runs harmlessly.
+    - cron: "20-44/2 15 * * 1-5"   # bill results, EDT window (~11:30am ET)
+    - cron: "20-44/2 16 * * 1-5"   # bill results, EST window
+    - cron: "50-59/2 16 * * 1-5"   # note/bond/TIPS/FRN results, EDT window part 1 (~1:00pm ET)
+    - cron: "0-15/2 17 * * 1-5"    # note/bond/TIPS/FRN results, EDT window part 2
+    - cron: "50-59/2 17 * * 1-5"   # note/bond/TIPS/FRN results, EST window part 1
+    - cron: "0-15/2 18 * * 1-5"    # note/bond/TIPS/FRN results, EST window part 2
   push:
     branches: [ main ]
   workflow_dispatch: {}      # lets you trigger it manually from the Actions tab
-
+ 
 permissions:
   contents: write
-
+ 
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+ 
       - name: Fetch upcoming (announced) auctions
         run: |
           mkdir -p data
@@ -29,7 +42,7 @@ jobs:
             -o data/upcoming.json
           # sanity check: must be a JSON array, not an HTML error page
           python3 -c "import json; d=json.load(open('data/upcoming.json')); assert isinstance(d, list)"
-
+ 
       - name: Fetch recent auction results
         run: |
           START=$(date -u -d '45 days ago' +%Y-%m-%d)
@@ -38,11 +51,11 @@ jobs:
             "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startdate=${START}&enddate=${END}" \
             -o data/results.json
           python3 -c "import json; d=json.load(open('data/results.json')); assert isinstance(d, list)"
-
+ 
       - name: Write fetch metadata
         run: |
           printf '{"fetchedAt":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > data/meta.json
-
+ 
       - name: Commit and push if anything changed
         run: |
           git config user.name "github-actions[bot]"
@@ -50,3 +63,5 @@ jobs:
           git add data/upcoming.json data/results.json data/meta.json
           git diff --cached --quiet || git commit -m "chore: refresh Treasury auction data"
           git push
+ 
+        
