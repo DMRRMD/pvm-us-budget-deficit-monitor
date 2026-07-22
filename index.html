@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PVM US Treasury Issuance Dashboard</title>
+<meta name="description" content="Live U.S. federal debt outstanding and Treasury auction calendar, sourced directly from fiscaldata.treasury.gov and treasurydirect.gov.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:        #0a0d12;
+    --bg-2:      #0d1017;
+    --panel:     #12161f;
+    --panel-2:   #171c27;
+    --border:    #232a38;
+    --border-soft: #1b212c;
+    --text:      #e7ecf5;
+    --text-dim:  #ffffff;
+    --text-mute: #ffffff;
+
+    --blue:      #3b82f6;
+    --blue-soft: rgba(59,130,246,0.14);
+    --violet:    #8b5cf6;
+    --violet-soft: rgba(139,92,246,0.14);
+    --indigo:    #6366f1;
+    --indigo-soft: rgba(99,102,241,0.14);
+    --green:     #22c55e;
+    --green-soft: rgba(34,197,94,0.14);
+    --amber:     #f59e0b;
+    --amber-soft: rgba(245,158,11,0.14);
+    --red:       #ef4444;
+    --red-soft:  rgba(239,68,68,0.14);
+
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --radius: 10px;
+  }
+  *{ box-sizing:border-box; }
+  html{ scroll-behavior:smooth; }
+  body{
+    margin:0; background:
+      radial-gradient(900px 420px at 12% -8%, rgba(59,130,246,0.10), transparent 60%),
+      var(--bg);
+    color:var(--text); font-family:var(--sans); font-size:14.5px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; scroll-behavior:auto !important; }
+  }
+  a{ color:var(--blue); text-decoration:none; }
+  a:hover{ text-decoration:underline; }
+  a:focus-visible, button:focus-visible, .tab:focus-visible{ outline:2px solid var(--blue); outline-offset:2px; }
+
+  .wrap{ max-width:1180px; margin:0 auto; padding:0 24px 90px; }
+
+  /* ---------- Top bar ---------- */
+  .topbar{ background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:20; }
+  .topbar-inner{
+    max-width:1180px; margin:0 auto; padding:14px 24px;
+    display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-logo{
+    height:38px; width:auto; flex:none; border-radius:6px;
+    background:#fff; padding:4px 7px; display:block;
+  }
+  .brand-icon{
+    width:36px; height:36px; border-radius:9px; flex:none;
+    background:var(--blue-soft); border:1px solid rgba(59,130,246,0.4);
+    display:flex; align-items:center; justify-content:center; color:var(--blue);
+  }
+  .brand h1{ font-size:15.5px; font-weight:700; margin:0; letter-spacing:-0.01em; }
+  .brand p{ font-size:11.5px; color:var(--text-mute); margin:2px 0 0; font-family:var(--mono); }
+  .topbar-meta{ display:flex; align-items:center; gap:16px; font-family:var(--mono); font-size:12px; color:var(--text-dim); }
+  .live{ display:flex; align-items:center; gap:6px; }
+  .live-dot{ width:7px; height:7px; border-radius:50%; background:var(--green); position:relative; animation:pulse 2.4s infinite; }
+  @keyframes pulse{
+    0%{ box-shadow:0 0 0 0 rgba(34,197,94,0.55); }
+    70%{ box-shadow:0 0 0 6px rgba(34,197,94,0); }
+    100%{ box-shadow:0 0 0 0 rgba(34,197,94,0); }
+  }
+  .refresh-btn{
+    font-family:var(--sans); font-size:12.5px; font-weight:600;
+    background:var(--blue-soft); color:var(--blue); border:1px solid rgba(59,130,246,0.4);
+    padding:7px 13px; border-radius:7px; cursor:pointer;
+  }
+  .refresh-btn:hover{ background:rgba(59,130,246,0.24); }
+  .refresh-btn:disabled{ opacity:0.5; cursor:progress; }
+
+  /* ---------- Tabs ---------- */
+  .tabs{
+    display:flex; gap:26px; max-width:1180px; margin:0 auto; padding:0 24px;
+    border-bottom:1px solid var(--border); overflow-x:auto;
+  }
+  .tab{
+    padding:13px 1px; font-size:13px; font-weight:500; color:var(--text-mute);
+    border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer; background:none; border-top:none; border-left:none; border-right:none;
+    font-family:var(--sans);
+  }
+  .tab.active{ color:var(--blue); border-bottom-color:var(--blue); }
+  .tab:hover:not(.active){ color:var(--text-dim); }
+
+  /* ---------- Sections ---------- */
+  section{ margin-top:40px; scroll-margin-top:96px; }
+  .section-eyebrow{
+    display:flex; align-items:center; gap:9px; margin-bottom:16px;
+    font-family:var(--mono); font-size:12px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase;
+    color:var(--blue);
+  }
+  .section-eyebrow svg{ flex:none; }
+  .section-note{ font-size:13px; color:var(--text-mute); margin:-6px 0 18px; }
+
+  /* ---------- Stat cards ---------- */
+  .stat-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:14px; }
+  @media (max-width:600px){ .stat-grid{ grid-template-columns:repeat(2, 1fr); } }
+  .stat-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    padding:16px 16px 14px;
+  }
+  .stat-card .k{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--text-mute); margin:0 0 9px;
+  }
+  .stat-card .v{
+    font-family:var(--mono); font-weight:700; font-size:24px; letter-spacing:-0.01em;
+    font-variant-numeric:tabular-nums; color:var(--text); line-height:1.1;
+  }
+  .stat-card .v.blue{ color:var(--blue); }
+  .stat-card .v.green{ color:var(--green); }
+  .stat-card .v.amber{ color:var(--amber); }
+  .stat-card .v.red{ color:var(--red); }
+  .stat-card .sub{ font-size:11.5px; color:var(--text-mute); margin-top:7px; }
+  .stat-card .sub.trend-up{ color:var(--red); }
+  .stat-card .sub.trend-down{ color:var(--green); }
+  .skeleton{ color:var(--text-mute); }
+
+  /* ---------- Chart panel ---------- */
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); }
+  .chart-panel{ margin-top:16px; padding:18px 20px 8px; }
+  .chart-panel-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+  .chart-panel-head h3{ font-size:13.5px; font-weight:600; margin:0; }
+  .chart-panel-head span{ font-family:var(--mono); font-size:11px; color:var(--text-mute); }
+  .chart-panel svg{ width:100%; height:auto; display:block; }
+
+  /* ---------- Two column: auctions + bars ---------- */
+  .split{ display:grid; grid-template-columns:1.15fr 0.85fr; gap:16px; align-items:start; }
+  @media (max-width:900px){ .split{ grid-template-columns:1fr; } }
+  .panel-head{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:15px 18px; border-bottom:1px solid var(--border);
+  }
+  .panel-head h3{ font-size:14px; font-weight:600; margin:0; }
+  .panel-pill{
+    font-family:var(--mono); font-size:10.5px; font-weight:600; letter-spacing:0.04em;
+    color:var(--green); background:var(--green-soft); border:1px solid rgba(34,197,94,0.35);
+    padding:3px 9px; border-radius:20px; display:inline-flex; align-items:center; gap:5px;
+  }
+  .panel-pill .d{ width:5px; height:5px; border-radius:50%; background:var(--green); }
+
+  .auction-list{ max-height:520px; overflow-y:auto; }
+  .auction-row{
+    display:grid; grid-template-columns:64px auto 1fr auto; gap:14px; align-items:center;
+    padding:12px 18px; border-bottom:1px solid var(--border-soft);
+  }
+  .auction-row:last-child{ border-bottom:none; }
+  .auction-row:hover{ background:rgba(255,255,255,0.02); }
+  .auction-row.next-up{ background:var(--blue-soft); }
+  .a-date{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
+  .a-desc{ font-size:13px; color:var(--text); }
+  .a-desc .term{ font-weight:600; }
+  .a-amt{ font-family:var(--mono); font-size:13px; color:var(--text-dim); font-variant-numeric:tabular-nums; text-align:right; }
+  .pill{
+    display:inline-block; font-size:10.5px; font-weight:600; padding:3px 9px; border-radius:5px;
+    font-family:var(--sans);
+  }
+  .pill.bill{ background:var(--blue-soft); color:#7ea9fb; }
+  .pill.note{ background:var(--indigo-soft); color:#a5b0fb; }
+  .pill.bond{ background:var(--violet-soft); color:#c4a5fb; }
+  .pill.tips{ background:var(--green-soft); color:#7ee2a8; }
+  .pill.frn{ background:rgba(255,255,255,0.06); color:var(--text-dim); }
+
+  .bar-list{ padding:16px 18px 18px; display:flex; flex-direction:column; gap:11px; }
+  .bar-row{ display:grid; grid-template-columns:96px 1fr 56px; gap:10px; align-items:center; }
+  .bar-label{ font-size:12px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar-track{ background:rgba(255,255,255,0.06); border-radius:5px; height:16px; overflow:hidden; }
+  .bar-fill{ background:linear-gradient(90deg, var(--blue), #60a5fa); height:100%; border-radius:5px; }
+  .bar-val{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); text-align:right; font-variant-numeric:tabular-nums; }
+
+  .state-row{ padding:22px 18px; color:var(--text-mute); font-size:13px; font-style:normal; }
+  .error-note{ color:var(--amber); }
+
+  /* ---------- Results table ---------- */
+  .table-panel{ overflow-x:auto; margin-top:16px; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; min-width:640px; }
+  thead th{
+    text-align:left; font-family:var(--mono); font-weight:600; font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase;
+    color:var(--text-mute); background:var(--panel-2); padding:11px 18px; border-bottom:1px solid var(--border);
+  }
+  tbody td{ padding:11px 18px; border-bottom:1px solid var(--border-soft); color:var(--text-dim); white-space:nowrap; }
+  tbody tr:hover td{ background:rgba(255,255,255,0.02); color:var(--text); }
+  .num{ text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+  /* ---------- Footer ---------- */
+  footer{
+    margin-top:60px; padding-top:20px; border-top:1px solid var(--border);
+    font-family:var(--mono); font-size:11.5px; color:var(--text-mute);
+    display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:center;
+  }
+  footer .disclaimer{ max-width:680px; }
+  footer a{ color:var(--text-dim); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <img class="brand-logo" src="data:image/jpeg;base64,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" alt="Pure Value Metrics logo">
+      <div>
+        <h1>PVM US Treasury Issuance Dashboard</h1>
+        <p id="brand-sub">Debt &amp; Auction Monitor</p>
+      </div>
+    </div>
+    <div class="topbar-meta">
+      <span class="live"><span class="live-dot"></span>Live · updated <span id="clock">—</span></span>
+      <button class="refresh-btn" id="refresh-btn" type="button">Refresh</button>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-target="overview">Overview</button>
+    <button class="tab" data-target="upcoming">Auction Calendar</button>
+    <button class="tab" data-target="results">Recent Results</button>
+  </nav>
+</header>
+
+<div class="wrap">
+
+  <!-- ================= OVERVIEW ================= -->
+  <section id="overview">
+    <div class="section-eyebrow">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 6"/><polyline points="14 6 21 6 21 13"/></svg>
+      Overview
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <p class="k">Monthly budget balance</p>
+        <p class="v" id="stat-deficit"><span class="skeleton">—</span></p>
+        <p class="sub" id="stat-deficit-sub">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">Forecast FY2026 deficit</p>
+        <p class="v red">$1.9T</p>
+        <p class="sub">CBO baseline, Feb 11, 2026 · 5.8% of GDP</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">Growth rate, per minute</p>
+        <p class="v" id="stat-rate-min"><span class="skeleton">—</span></p>
+        <p class="sub" id="stat-rate-min-sub">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">Growth rate, per hour</p>
+        <p class="v" id="stat-rate-hour"><span class="skeleton">—</span></p>
+        <p class="sub" id="stat-rate-hour-sub">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">1-day change</p>
+        <p class="v" id="stat-delta"><span class="skeleton">—</span></p>
+        <p class="sub" id="stat-delta-sub">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">Total public debt</p>
+        <p class="v blue" id="stat-total"><span class="skeleton">loading…</span></p>
+        <p class="sub" id="stat-total-sub">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">Debt ceiling</p>
+        <p class="v" id="stat-ceiling"><span class="skeleton">—</span></p>
+        <p class="sub" id="stat-ceiling-sub">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">FY2026 deficit / GDP</p>
+        <p class="v" id="stat-deficit-gdp"><span class="skeleton">—</span></p>
+        <p class="sub" id="stat-deficit-gdp-sub">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">Total debt / GDP</p>
+        <p class="v" id="stat-debt-gdp"><span class="skeleton">—</span></p>
+        <p class="sub" id="stat-debt-gdp-sub">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">TGA balance (Current US Govt Cash Balance)</p>
+        <p class="v" id="stat-tga"><span class="skeleton">—</span></p>
+        <p class="sub" id="stat-tga-sub">Treasury General Account, operating cash</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">Net interest, FY-to-date</p>
+        <p class="v amber" id="stat-interest"><span class="skeleton">—</span></p>
+        <p class="sub" id="stat-interest-sub">—</p>
+      </div>
+      <div class="stat-card">
+        <p class="k">Next auction</p>
+        <p class="v" id="stat-next" style="font-size:17px;"><span class="skeleton">—</span></p>
+        <p class="sub" id="stat-next-sub">—</p>
+      </div>
+    </div>
+
+    <div class="panel chart-panel">
+      <div class="chart-panel-head">
+        <h3>Total public debt outstanding — monthly, trailing ~13 months</h3>
+        <span id="chart-range">—</span>
+      </div>
+      <div id="chart-mount"><p class="state-row">Drawing trend…</p></div>
+    </div>
+
+    <div class="panel chart-panel">
+      <div class="chart-panel-head">
+        <h3>TGA balance — monthly, trailing ~2 years</h3>
+        <span id="tga-chart-range">—</span>
+      </div>
+      <div id="tga-chart-mount"><p class="state-row">Drawing trend…</p></div>
+    </div>
+  </section>
+
+  <!-- ================= AUCTION CALENDAR ================= -->
+  <section id="upcoming">
+    <div class="section-eyebrow">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      Debt Auction Calendar
+    </div>
+    <p class="section-note">Confirmed rows have a formal announcement, CUSIP, and offering amount. Rows marked <strong>Pending</strong> already have a CUSIP assigned — Treasury does this for predictable recurring bills/notes about a week ahead — but the formal announcement with the offering amount hasn't been published yet. Cross-check against <a href="https://www.treasurydirect.gov/auctions/upcoming/" target="_blank" rel="noopener">treasurydirect.gov/auctions/upcoming</a> if it matters for a decision.</p>
+
+    <div class="split">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Upcoming Auctions</h3>
+          <span class="panel-pill"><span class="d"></span><span id="upcoming-count">—</span></span>
+        </div>
+        <div class="auction-list" id="upcoming-body">
+          <div class="state-row">Retrieving announced auctions…</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Offering Sizes by Term</h3>
+          <span style="font-family:var(--mono); font-size:11px; color:var(--text-mute);">next occurrence</span>
+        </div>
+        <div class="bar-list" id="bars-body">
+          <div class="state-row">Building chart…</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RECENT RESULTS ================= -->
+  <section id="results">
+    <div class="section-eyebrow">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>
+      Recent Auction Results
+    </div>
+    <p class="section-note">Completed auctions from the trailing 45 days, most recent first.</p>
+    <div class="panel table-panel">
+      <table>
+        <thead>
+          <tr>
+            <th>Auction date</th>
+            <th>Security</th>
+            <th>Term</th>
+            <th>CUSIP</th>
+            <th class="num">High rate / yield</th>
+            <th class="num">Bid-to-cover</th>
+            <th class="num">Total accepted</th>
+          </tr>
+        </thead>
+        <tbody id="results-body">
+          <tr><td colspan="7" class="state-row">Retrieving recent results…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <div class="disclaimer">
+      Built for internal research reference only — not investment advice. Debt figures are fetched client-side from fiscaldata.treasury.gov; auction data is refreshed on a schedule by a GitHub Action and served from this site, since TreasuryDirect does not allow direct browser access. Does not warrant the accuracy or timeliness of third-party data. <span id="last-refresh"></span> <span id="data-job-meta"></span>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const FISCAL_BASE = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service";
+  const TD_BASE = "https://www.treasurydirect.gov/TA_WS/securities";
+  const LOCAL_UPCOMING = "./data/upcoming.json";
+  const LOCAL_RESULTS  = "./data/results.json";
+  const LOCAL_META     = "./data/meta.json";
+  const TREND_DAYS = 380;
+  const RESULTS_WINDOW_DAYS = 45;
+  const AUTO_REFRESH_MS = 15 * 60 * 1000;
+
+  // ---------- Manually-sourced constants ----------
+  // These aren't available from a live, no-key API, so they're hardcoded
+  // with an explicit source and date. Both need occasional manual updates:
+  // GDP each quarter when BEA publishes a new estimate; the ceiling only
+  // when Congress acts again.
+  //
+  // Nominal (current-dollar) GDP, Q1 2026, third estimate, released by BEA
+  // on June 25, 2026: $31,865.7B. Source: BEA / JEC Monthly GDP Update.
+  // Next BEA GDP release (Q2 2026 advance estimate): July 30, 2026.
+  const NOMINAL_GDP_USD = 31865.7e9;
+  const NOMINAL_GDP_LABEL = "Q1 2026 nominal GDP (BEA, 3rd est., Jun 25, 2026)";
+  //
+  // Statutory debt limit: raised by $5 trillion to $41.1T by the One Big
+  // Beautiful Bill Act (OBBBA), signed into law July 4, 2025. This is a
+  // fixed dollar increase, not a time-limited suspension, so it has no
+  // expiration date — it simply applies until debt outstanding reaches it.
+  // CRFB and other analysts estimate that will happen sometime in
+  // mid-to-late 2027, based on projected borrowing pace, but that is an
+  // estimate, not a statutory date. Source: CRFB, Congress.gov CRS IF10292.
+  const DEBT_CEILING_USD = 41.1e12;
+  const DEBT_CEILING_SET_LABEL = "set Jul 2025 (OBBBA, +$5T)";
+  const DEBT_CEILING_ESTIMATE_LABEL = "next action est. needed mid–late 2027 (CRFB), not a fixed date";
+
+
+  const $ = (id) => document.getElementById(id);
+
+  async function fetchJsonWithFallback(localUrl, remoteUrl){
+    try {
+      const res = await fetch(localUrl, { cache: "no-store" });
+      if (res.ok) return { data: await res.json(), source: "local" };
+    } catch (e) { /* fall through to remote */ }
+    const res = await fetch(remoteUrl, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status + " for " + remoteUrl);
+    return { data: await res.json(), source: "remote" };
+  }
+
+  function fmtUSD(n, opts){
+    opts = opts || {};
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    if (opts.compact){
+      const abs = Math.abs(n);
+      if (abs >= 1e12) return "$" + (n/1e12).toFixed(3) + "T";
+      if (abs >= 1e9)  return "$" + (n/1e9).toFixed(1) + "B";
+      if (abs >= 1e6)  return "$" + (n/1e6).toFixed(1) + "M";
+    }
+    return "$" + Math.round(n).toLocaleString("en-US");
+  }
+  function fmtMio(n){
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    return "$" + (n/1e6).toFixed(1) + " mio";
+  }
+  function fmtDate(d){
+    if (!d) return "—";
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt.getTime())) return "—";
+    return dt.toLocaleDateString("en-US", { day:"2-digit", month:"short", year:"numeric", timeZone:"UTC" });
+  }
+  function fmtDateShort(d){
+    if (!d) return "—";
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt.getTime())) return "—";
+    return dt.toLocaleDateString("en-US", { day:"2-digit", month:"short", timeZone:"UTC" });
+  }
+  function parseTDDate(s){
+    if (!s) return null;
+    const dt = new Date(s);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+  function daysBetween(a, b){ return Math.round((a.getTime() - b.getTime()) / 86400000); }
+  function pillClass(type){
+    if (!type) return "";
+    const t = type.toLowerCase();
+    if (t.includes("bill")) return "bill";
+    if (t.includes("note")) return "note";
+    if (t.includes("bond")) return "bond";
+    if (t.includes("tips")) return "tips";
+    if (t.includes("frn")) return "frn";
+    return "";
+  }
+  function firstNum(obj, keys){
+    for (const k of keys){
+      const v = obj[k];
+      if (v !== undefined && v !== null && v !== ""){
+        const n = parseFloat(v);
+        if (!isNaN(n)) return n;
+      }
+    }
+    return null;
+  }
+
+  function tickClock(){
+    const now = new Date();
+    $("clock").textContent = now.toLocaleTimeString("en-GB", { timeZone:"UTC", hour:"2-digit", minute:"2-digit", second:"2-digit" }) + " UTC";
+  }
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  // ---------- tab nav (scroll-spy + click) ----------
+  const tabs = Array.from(document.querySelectorAll(".tab"));
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      const target = document.getElementById(tab.dataset.target);
+      if (target) target.scrollIntoView({ behavior:"smooth", block:"start" });
+    });
+  });
+  const sections = tabs.map(t => document.getElementById(t.dataset.target)).filter(Boolean);
+  if ("IntersectionObserver" in window && sections.length){
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting){
+          tabs.forEach(t => t.classList.toggle("active", t.dataset.target === entry.target.id));
+        }
+      });
+    }, { rootMargin: "-40% 0px -55% 0px", threshold: 0 });
+    sections.forEach(s => obs.observe(s));
+  }
+
+  // ---------- chart (reusable for debt and TGA trends) ----------
+  // ---------- monthly aggregation + bar chart (reusable for debt and TGA) ----------
+  // Takes daily {d, v} points (ascending) and collapses each calendar month
+  // down to its last available value (month-end snapshot), capped to the
+  // most recent `months` months. This is what turns a dense, jagged daily
+  // series into the same handful of bars a professional monthly dashboard
+  // would show — and, as a side effect, it also resolves a display issue:
+  // a long flat stretch in the daily debt series (Jan–Jul 2025) is real —
+  // that's the debt-ceiling standoff period, when Treasury was legally
+  // capped and used "extraordinary measures," so debt genuinely barely
+  // moved — but as a thin daily line with no year on the axis, it read as
+  // a mysterious gap. As a few clearly year-labeled monthly bars, it reads
+  // as what it actually was.
+  function aggregateMonthly(points, months){
+    const byMonth = new Map();
+    points.forEach(p => {
+      const d = new Date(p.d);
+      const key = d.getUTCFullYear() + "-" + String(d.getUTCMonth()+1).padStart(2,"0");
+      byMonth.set(key, { d: p.d, v: p.v }); // overwritten each time -> last value in month wins
+    });
+    const keys = Array.from(byMonth.keys()).sort();
+    const lastKeys = keys.slice(-months);
+    return lastKeys.map(k => {
+      const entry = byMonth.get(k);
+      const d = new Date(entry.d);
+      return { label: d.toLocaleDateString("en-US", { month:"short", year:"2-digit", timeZone:"UTC" }).replace(" ", " '"), d: entry.d, v: entry.v };
+    });
+  }
+
+  function renderBarChart(monthlyPoints, opts){
+    opts = opts || {};
+    const mountId = opts.mountId || "chart-mount";
+    const rangeId = opts.rangeId || "chart-range";
+    const color = opts.color || "#3b82f6";
+    const label = opts.label || "Monthly chart";
+    const mount = $(mountId);
+    if (!monthlyPoints.length){ mount.innerHTML = '<p class="state-row error-note">Trend data unavailable.</p>'; return; }
+
+    const W = 1000, H = 260, PAD_L = 66, PAD_R = 14, PAD_T = 14, PAD_B = 34;
+    const values = monthlyPoints.map(p => p.v);
+    const dataMin = Math.min(...values), dataMax = Math.max(...values);
+    const pad = (dataMax - dataMin) * 0.08 || dataMax * 0.02 || 1;
+    const min = Math.max(0, dataMin - pad);
+    const max = dataMax + pad;
+    const range = (max - min) || 1;
+
+    const n = monthlyPoints.length;
+    const plotW = W - PAD_L - PAD_R;
+    const slot = plotW / n;
+    const barW = Math.max(6, slot * 0.55);
+    const y = (v) => PAD_T + (1 - (v - min) / range) * (H - PAD_T - PAD_B);
+    const baseline = H - PAD_B;
+
+    let grid = "";
+    const gridLines = 4;
+    for (let i = 0; i <= gridLines; i++){
+      const gy = PAD_T + (i / gridLines) * (H - PAD_T - PAD_B);
+      const val = max - (i / gridLines) * range;
+      grid += `<line x1="${PAD_L}" y1="${gy.toFixed(1)}" x2="${W-PAD_R}" y2="${gy.toFixed(1)}" stroke="#232a38" stroke-width="1"/>`;
+      grid += `<text x="${PAD_L-10}" y="${(gy+4).toFixed(1)}" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="#ffffff">${fmtUSD(val,{compact:true})}</text>`;
+    }
+
+    let bars = "";
+    monthlyPoints.forEach((p, i) => {
+      const cx = PAD_L + slot * i + slot/2;
+      const barH = baseline - y(p.v);
+      bars += `<rect x="${(cx - barW/2).toFixed(1)}" y="${y(p.v).toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="3" fill="${color}" fill-opacity="0.85"/>`;
+      bars += `<text x="${cx.toFixed(1)}" y="${(H-10).toFixed(1)}" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="#ffffff">${p.label}</text>`;
+    });
+
+    mount.innerHTML = `
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}">
+        ${grid}
+        ${bars}
+      </svg>`;
+    $(rangeId).textContent = monthlyPoints[0].label + " – " + monthlyPoints[monthlyPoints.length-1].label;
+  }
+
+  // ---------- debt overview ----------
+  async function loadDebt(){
+    const url = `${FISCAL_BASE}/v2/accounting/od/debt_to_penny?fields=record_date,tot_pub_debt_out_amt,debt_held_public_amt,intragov_hold_amt&sort=-record_date&page[size]=${TREND_DAYS}&page[number]=1`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("debt_to_penny HTTP " + res.status);
+    const json = await res.json();
+    const rows = json.data || [];
+    if (!rows.length) throw new Error("empty debt series");
+
+    const latest = rows[0];
+    const prior = rows[1] || null;
+    const total = parseFloat(latest.tot_pub_debt_out_amt);
+    const heldPublic = parseFloat(latest.debt_held_public_amt);
+    const intragov = parseFloat(latest.intragov_hold_amt);
+
+    $("stat-total").innerHTML = fmtUSD(total, {compact:true});
+    $("stat-total").className = "v blue";
+    $("stat-total-sub").textContent = "as of " + fmtDate(latest.record_date);
+
+    const debtToGdpPct = (total / NOMINAL_GDP_USD) * 100;
+    $("stat-debt-gdp").textContent = debtToGdpPct.toFixed(1) + "%";
+    $("stat-debt-gdp-sub").textContent = NOMINAL_GDP_LABEL;
+
+    $("stat-ceiling").textContent = fmtUSD(DEBT_CEILING_USD, {compact:true});
+    const ceilingUsedPct = (total / DEBT_CEILING_USD) * 100;
+    $("stat-ceiling").className = "v " + (ceilingUsedPct >= 95 ? "red" : ceilingUsedPct >= 85 ? "amber" : "");
+    $("stat-ceiling-sub").textContent = ceilingUsedPct.toFixed(1) + "% used (vs total debt, a close proxy for debt subject to limit) · " + DEBT_CEILING_SET_LABEL + " · " + DEBT_CEILING_ESTIMATE_LABEL;
+
+    if (prior){
+      const priorTotal = parseFloat(prior.tot_pub_debt_out_amt);
+      const delta = total - priorTotal;
+      const up = delta >= 0;
+      $("stat-delta").innerHTML = (up ? "+" : "−") + fmtUSD(Math.abs(delta), {compact:true});
+      $("stat-delta").className = "v " + (up ? "red" : "green");
+      $("stat-delta-sub").innerHTML = `<span class="${up ? 'trend-up' : 'trend-down'}">${up ? "▲" : "▼"}</span> vs ${fmtDate(prior.record_date)} · actual, can be lumpy around settlement dates`;
+    }
+
+    // Implied per-minute / per-hour growth rate — an average derived from the
+    // trailing window, not a live tick (Treasury only publishes once a day).
+    const windowDays = Math.min(30, rows.length - 1);
+    if (windowDays > 0){
+      const totalWindowAgo = parseFloat(rows[windowDays].tot_pub_debt_out_amt);
+      const avgDaily = (total - totalWindowAgo) / windowDays;
+      const perMinute = avgDaily / 1440;
+      const perHour = avgDaily / 24;
+      const upRate = avgDaily >= 0;
+      $("stat-rate-min").innerHTML = (upRate ? "+" : "−") + fmtMio(Math.abs(perMinute));
+      $("stat-rate-min").className = "v " + (upRate ? "red" : "green");
+      $("stat-rate-min-sub").textContent = windowDays + "-day smoothed average — won't match any single day's actual change";
+      $("stat-rate-hour").innerHTML = (upRate ? "+" : "−") + fmtMio(Math.abs(perHour));
+      $("stat-rate-hour").className = "v " + (upRate ? "red" : "green");
+      $("stat-rate-hour-sub").textContent = windowDays + "-day smoothed average — won't match any single day's actual change";
+    }
+
+    const points = rows.slice().reverse().map(r => ({ d: r.record_date, v: parseFloat(r.tot_pub_debt_out_amt) }));
+    renderBarChart(aggregateMonthly(points, 13), { mountId: "chart-mount", rangeId: "chart-range", color: "#3b82f6", label: "Total public debt outstanding, monthly" });
+  }
+
+  // ---------- TGA balance ----------
+  // Source: Daily Treasury Statement, Table II (Operating Cash Balance).
+  // The TGA closing-balance figure has lived under different column names as
+  // DTS has evolved (Treasury's own notes flag this) — close_today_bal is the
+  // current one, open_today_bal is the historical fallback if it's ever null.
+  async function loadTGA(){
+    const url = `${FISCAL_BASE}/v1/accounting/dts/operating_cash_balance?fields=record_date,account_type,open_today_bal,close_today_bal&sort=-record_date&page[size]=2500`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("operating_cash_balance HTTP " + res.status);
+    const json = await res.json();
+    const rows = json.data || [];
+    const tgaRows = rows.filter(r => /treasury general account/i.test(r.account_type || ""));
+    if (!tgaRows.length) throw new Error("no TGA rows found");
+    const tga = tgaRows[0];
+    const bal = firstNum(tga, ["close_today_bal","open_today_bal"]);
+    if (bal === null) throw new Error("TGA balance null");
+    $("stat-tga").textContent = fmtUSD(bal * 1e6, {compact:true});
+    $("stat-tga-sub").textContent = "as of " + fmtDate(tga.record_date);
+
+    // 2-year trend, oldest -> newest, one point per date (TGA rows are
+    // already unique per date since we filtered to a single account_type).
+    const cutoff = new Date(new Date(tga.record_date).getTime() - 730 * 86400000);
+    const points = tgaRows
+      .filter(r => new Date(r.record_date) >= cutoff)
+      .map(r => ({ d: r.record_date, v: firstNum(r, ["close_today_bal","open_today_bal"]) }))
+      .filter(p => p.v !== null)
+      .reverse();
+    renderBarChart(aggregateMonthly(points.map(p => ({ d: p.d, v: p.v * 1e6 })), 24), { mountId: "tga-chart-mount", rangeId: "tga-chart-range", color: "#22c55e", label: "TGA balance, monthly" });
+  }
+
+  // ---------- Net interest, fiscal-year-to-date ----------
+  // Source: Monthly Treasury Statement, Table 9 ("Summary of Receipts by
+  // Source, and Outlays by Function of the U.S. Government"), classification
+  // "Net Interest" (budget function 900). This table can carry more than one
+  // row per date (parent total plus sub-lines), so among rows sharing the
+  // most recent record_date, the largest FYTD figure is treated as the
+  // top-level total.
+  async function loadNetInterest(){
+    const filterVal = encodeURIComponent("Net Interest");
+    const url = `${FISCAL_BASE}/v1/accounting/mts/mts_table_9?filter=classification_desc:eq:${filterVal}&sort=-record_date&page[size]=10`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("mts_table_9 HTTP " + res.status);
+    const json = await res.json();
+    const rows = json.data || [];
+    if (!rows.length) throw new Error("empty mts_table_9 series");
+    const topDate = rows[0].record_date;
+    const sameDate = rows.filter(r => r.record_date === topDate);
+    const fytdCandidates = sameDate
+      .map(r => firstNum(r, ["current_fytd_rcpt_outly_amt","current_fytd_outly_amt","current_fytd_outlay_amt"]))
+      .filter(v => v !== null);
+    const monthCandidates = sameDate
+      .map(r => firstNum(r, ["current_month_rcpt_outly_amt","current_month_outly_amt"]))
+      .filter(v => v !== null);
+    if (!fytdCandidates.length) throw new Error("no net interest FYTD figure found");
+    const fytd = Math.max(...fytdCandidates);
+    // Note: unlike the general MTS "reported in millions" convention, this
+    // field comes back as an actual dollar figure already — no ×1e6 needed.
+    const topDt = new Date(topDate);
+    // U.S. federal fiscal year runs Oct 1 – Sep 30; the FY label is the
+    // calendar year the FY ends in (e.g. Jul 2026 falls in FY2026).
+    const fyLabel = "FY" + (topDt.getUTCMonth() >= 9 ? topDt.getUTCFullYear() + 1 : topDt.getUTCFullYear());
+    $("stat-interest").textContent = "$" + (fytd/1e9).toFixed(1) + "B";
+    let sub = fyLabel + " to date, through " + fmtDate(topDate);
+    if (monthCandidates.length){
+      const monthAmt = Math.max(...monthCandidates);
+      const monthLabel = topDt.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+      sub += " · " + monthLabel + ": $" + (monthAmt/1e9).toFixed(1) + "B";
+    }
+    $("stat-interest-sub").textContent = sub;
+  }
+
+  // ---------- Monthly budget balance ----------
+  // Source: Monthly Treasury Statement, Table 1 ("Summary of Receipts,
+  // Outlays, and the Deficit/Surplus"). Computed directly as outlays minus
+  // receipts for the latest month, rather than trusting a pre-signed
+  // "deficit/surplus" field's polarity — this way the sign is unambiguous
+  // by construction: positive means a deficit, negative means a surplus.
+  function normalizeFlowToDollars(n){
+    if (n === null || n === undefined) return null;
+    // Monthly receipts/outlays are always tens-of-billions to ~$1T; if the
+    // raw figure is already that large it's in dollars, otherwise it's
+    // reported in millions per Treasury's usual MTS convention.
+    return Math.abs(n) >= 1e9 ? n : n * 1e6;
+  }
+  async function loadMonthlyDeficit(){
+    const url = `${FISCAL_BASE}/v1/accounting/mts/mts_table_1?sort=-record_date&page[size]=300`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("mts_table_1 HTTP " + res.status);
+    const json = await res.json();
+    const rows = json.data || [];
+    if (!rows.length) throw new Error("empty mts_table_1 series");
+    const topDate = rows[0].record_date;
+    const sameDate = rows.filter(r => r.record_date === topDate);
+    const totalRow = sameDate.find(r => /total/i.test(r.classification_desc || "")) || sameDate[0];
+    const rcpt = firstNum(totalRow, ["current_month_gross_rcpt_amt","current_month_rcpt_amt"]);
+    const outly = firstNum(totalRow, ["current_month_gross_outly_amt","current_month_outly_amt"]);
+    if (rcpt === null || outly === null) throw new Error("no monthly receipts/outlays figures found");
+    const rcptDollars = normalizeFlowToDollars(rcpt);
+    const outlyDollars = normalizeFlowToDollars(outly);
+    const balance = outlyDollars - rcptDollars; // positive = deficit
+    const isDeficit = balance >= 0;
+    const monthLabel = new Date(topDate).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+    $("stat-deficit").textContent = (isDeficit ? "−$" : "+$") + (Math.abs(balance)/1e9).toFixed(1) + "B";
+    $("stat-deficit").className = "v " + (isDeficit ? "red" : "green");
+    $("stat-deficit-sub").textContent = monthLabel + " · " + (isDeficit ? "deficit" : "surplus") + " (outlays − receipts)";
+
+    // FY2026-to-date deficit as a share of the latest annualized GDP level.
+    // mts_table_1 is a by-month breakdown table — it doesn't carry a
+    // pre-computed fiscal-year-to-date field the way some other MTS tables
+    // do, so this sums the (already-confirmed-working) monthly figures for
+    // every month since the fiscal year began, rather than guessing another
+    // field name that may not exist on this particular table.
+    const topDt = new Date(topDate);
+    const fyStartYear = topDt.getUTCMonth() >= 9 ? topDt.getUTCFullYear() : topDt.getUTCFullYear() - 1;
+    const fyStart = new Date(Date.UTC(fyStartYear, 9, 1));
+    const seenMonths = new Set();
+    let fytdRcptDollars = 0, fytdOutlyDollars = 0, monthsCounted = 0;
+    for (const r of rows){
+      const d = new Date(r.record_date);
+      if (isNaN(d.getTime()) || d < fyStart || d > topDt) continue;
+      const monthKey = d.getUTCFullYear() + "-" + d.getUTCMonth();
+      if (seenMonths.has(monthKey)) continue;
+      seenMonths.add(monthKey);
+      const dateRows = rows.filter(x => x.record_date === r.record_date);
+      const tRow = dateRows.find(x => /total/i.test(x.classification_desc || "")) || dateRows[0];
+      const mr = firstNum(tRow, ["current_month_gross_rcpt_amt","current_month_rcpt_amt"]);
+      const mo = firstNum(tRow, ["current_month_gross_outly_amt","current_month_outly_amt"]);
+      if (mr !== null && mo !== null){
+        fytdRcptDollars += normalizeFlowToDollars(mr);
+        fytdOutlyDollars += normalizeFlowToDollars(mo);
+        monthsCounted++;
+      }
+    }
+    if (monthsCounted > 0){
+      const fytdBalance = fytdOutlyDollars - fytdRcptDollars;
+      const pctGdp = (fytdBalance / NOMINAL_GDP_USD) * 100;
+      $("stat-deficit-gdp").textContent = (fytdBalance >= 0 ? "" : "−") + Math.abs(pctGdp).toFixed(1) + "%";
+      $("stat-deficit-gdp").className = "v " + (fytdBalance >= 0 ? "red" : "green");
+      $("stat-deficit-gdp-sub").textContent = "FY" + (fyStartYear+1) + " to date (" + monthsCounted + " mo.) ÷ " + NOMINAL_GDP_LABEL;
+    } else {
+      $("stat-deficit-gdp").innerHTML = '<span class="error-note">unavailable</span>';
+      $("stat-deficit-gdp-sub").textContent = "could not sum FYTD months";
+    }
+  }
+
+  function renderBars(rows){
+    const mount = $("bars-body");
+    const seenTerm = new Set();
+    const bars = [];
+    rows.forEach(r => {
+      const key = (r.raw.securityType || "") + " " + (r.raw.securityTerm || "");
+      if (seenTerm.has(key)) return;
+      const amt = firstNum(r.raw, ["offeringAmount","currentlyOutstanding"]);
+      if (amt === null) return;
+      seenTerm.add(key);
+      bars.push({ label: (r.raw.securityTerm || r.raw.securityType || "—"), amt });
+    });
+    const top = bars.slice(0, 10);
+    if (!top.length){ mount.innerHTML = '<p class="state-row">No offering-size data available.</p>'; return; }
+    const max = Math.max(...top.map(b => b.amt));
+    mount.innerHTML = top.map(b => `
+      <div class="bar-row">
+        <span class="bar-label">${b.label}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:${Math.max(4, (b.amt/max)*100).toFixed(1)}%"></span></span>
+        <span class="bar-val">${fmtUSD(b.amt, {compact:true})}</span>
+      </div>`).join("");
+  }
+
+  // ---------- pending (CUSIP assigned, not yet formally announced with an amount) ----------
+  // Source: Treasury's "Upcoming Auctions Data" dataset on fiscaldata.treasury.gov —
+  // confirmed fields: record_date, security_type, security_term, reopening, cusip
+  // (plus announcement/auction/issue dates). This is different from the
+  // 6-month tentative schedule: it's Treasury's near-term (about a week out)
+  // pre-assigned-CUSIP list, which is what TreasuryDirect's own "Upcoming
+  // Auctions" page shows alongside fully-announced securities.
+  // The exact endpoint slug isn't independently documented the way the
+  // debt/TGA endpoints are, so a couple of plausible candidates are tried.
+  const PENDING_ENDPOINT_CANDIDATES = [
+    `${FISCAL_BASE}/v1/accounting/od/upcoming_auctions`,
+    `${FISCAL_BASE}/v1/accounting/od/auctions_upcoming`
+  ];
+  async function loadPendingAuctions(){
+    for (const url of PENDING_ENDPOINT_CANDIDATES){
+      try {
+        const res = await fetch(`${url}?sort=-record_date&page[size]=60`, { cache: "no-store" });
+        if (!res.ok) continue;
+        const json = await res.json();
+        const rows = json.data || [];
+        if (Array.isArray(rows) && rows.length) return rows;
+      } catch (e) { /* try next candidate */ }
+    }
+    return [];
+  }
+
+  async function loadUpcoming(){
+    const body = $("upcoming-body");
+    const remoteUrl = `${TD_BASE}/announced?format=json`;
+    const { data } = await fetchJsonWithFallback(LOCAL_UPCOMING, remoteUrl);
+    let raw = Array.isArray(data) ? data : (Array.isArray(data.rows) ? data.rows : []);
+
+    const now = new Date();
+    let rows = raw
+      .map(r => ({ raw:r, auctionDate: parseTDDate(r.auctionDate) }))
+      .filter(r => r.auctionDate && r.auctionDate >= new Date(now.toDateString()))
+      .sort((a,b) => a.auctionDate - b.auctionDate)
+      .slice(0, 60);
+
+    const confirmedCusips = new Set(rows.map(r => r.raw.cusip).filter(Boolean));
+    const pendingRaw = await loadPendingAuctions();
+    const pendingRows = pendingRaw
+      .filter(p => p.cusip && !confirmedCusips.has(p.cusip))
+      .map(p => ({ pending: true, raw: p, auctionDate: parseTDDate(p.auction_date || p.auctionDate || p.record_date) }))
+      .filter(p => p.auctionDate && p.auctionDate >= new Date(now.toDateString()))
+      .sort((a,b) => a.auctionDate - b.auctionDate);
+
+    const combined = rows.map(r => ({ ...r, pending: false }))
+      .concat(pendingRows)
+      .sort((a,b) => a.auctionDate - b.auctionDate);
+
+    $("upcoming-count").textContent = rows.length + " confirmed" + (pendingRows.length ? " · " + pendingRows.length + " pending" : "");
+
+    if (!combined.length){
+      body.innerHTML = '<div class="state-row">No currently announced or pending auctions were found.</div>';
+      $("bars-body").innerHTML = '<div class="state-row">No offering-size data available.</div>';
+      $("stat-next").textContent = "—";
+      $("stat-next-sub").textContent = "—";
+      return;
+    }
+
+    body.innerHTML = combined.map((r, idx) => {
+      const days = daysBetween(r.auctionDate, new Date(now.toDateString()));
+      const countdown = days === 0 ? "Today" : days === 1 ? "Tomorrow" : `T−${days}d`;
+      if (r.pending){
+        const p = r.raw;
+        return `<div class="auction-row">
+          <span class="a-date">${fmtDateShort(r.auctionDate)}</span>
+          <span class="pill ${pillClass(p.security_type)}">${p.security_type || "—"}</span>
+          <span class="a-desc"><span class="term">${p.security_term || "—"}</span> — CUSIP ${p.cusip || "—"} · amount not yet announced</span>
+          <span class="a-amt">Pending <span style="color:var(--text-mute)">· ${countdown}</span></span>
+        </div>`;
+      }
+      const raw = r.raw;
+      const offering = firstNum(raw, ["offeringAmount","currentlyOutstanding"]);
+      return `<div class="auction-row ${idx === 0 ? 'next-up' : ''}">
+        <span class="a-date">${fmtDateShort(raw.auctionDate)}</span>
+        <span class="pill ${pillClass(raw.securityType)}">${raw.securityType || "—"}</span>
+        <span class="a-desc"><span class="term">${raw.securityTerm || "—"}</span> — CUSIP ${raw.cusip || "—"} · issue ${fmtDateShort(raw.issueDate)}</span>
+        <span class="a-amt">${offering !== null ? fmtUSD(offering,{compact:true}) : "—"} <span style="color:var(--text-mute)">· ${countdown}</span></span>
+      </div>`;
+    }).join("");
+
+    if (rows.length){
+      const first = rows[0].raw;
+      $("stat-next").textContent = (first.securityTerm || first.securityType || "—");
+      const days0 = daysBetween(rows[0].auctionDate, new Date(now.toDateString()));
+      const countdown0 = days0 === 0 ? "today" : days0 === 1 ? "tomorrow" : `in ${days0}d`;
+      $("stat-next-sub").textContent = fmtDate(rows[0].auctionDate) + " · " + countdown0;
+    }
+
+    renderBars(rows);
+  }
+
+  // ---------- recent results ----------
+  async function loadResults(){
+    const body = $("results-body");
+    const today = new Date();
+    const start = new Date(today.getTime() - RESULTS_WINDOW_DAYS*86400000);
+    const fmt = (d) => d.toISOString().slice(0,10);
+    const remoteUrl = `${TD_BASE}/search?format=json&startdate=${fmt(start)}&enddate=${fmt(today)}`;
+    const { data } = await fetchJsonWithFallback(LOCAL_RESULTS, remoteUrl);
+    let raw = Array.isArray(data) ? data : (Array.isArray(data.rows) ? data.rows : []);
+
+    let rows = raw
+      .map(r => ({ raw:r, auctionDate: parseTDDate(r.auctionDate) }))
+      .filter(r => {
+        if (!r.auctionDate || r.auctionDate > today) return false;
+        return firstNum(r.raw, ["highYield","highDiscountRate","highInvestmentRate","highDiscountMargin"]) !== null;
+      })
+      .sort((a,b) => b.auctionDate - a.auctionDate);
+
+    const seen = new Set();
+    rows = rows.filter(r => {
+      if (seen.has(r.raw.cusip)) return false;
+      seen.add(r.raw.cusip);
+      return true;
+    }).slice(0, 20);
+
+    if (!rows.length){
+      body.innerHTML = '<tr><td colspan="7" class="state-row">No completed auctions were returned for the trailing window.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(r => {
+      const raw = r.raw;
+      const yieldVal = firstNum(raw, ["highYield","highDiscountRate","highInvestmentRate","highDiscountMargin"]);
+      const btc = firstNum(raw, ["bidToCoverRatio"]);
+      const accepted = firstNum(raw, ["totalAccepted","competitiveAccepted"]);
+      return `<tr>
+        <td>${fmtDate(raw.auctionDate)}</td>
+        <td><span class="pill ${pillClass(raw.securityType)}">${raw.securityType || "—"}</span></td>
+        <td>${raw.securityTerm || "—"}</td>
+        <td>${raw.cusip || "—"}</td>
+        <td class="num">${yieldVal !== null ? yieldVal.toFixed(3) + "%" : "—"}</td>
+        <td class="num">${btc !== null ? `<span style="color:#4ade80; font-weight:700;">${btc.toFixed(2)}</span>` : "—"}</td>
+        <td class="num">${accepted !== null ? fmtUSD(accepted,{compact:true}) : "—"}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function loadDataJobMeta(){
+    try {
+      const res = await fetch(LOCAL_META, { cache: "no-store" });
+      if (!res.ok) return;
+      const meta = await res.json();
+      if (meta && meta.fetchedAt){
+        const dt = new Date(meta.fetchedAt);
+        const el = $("data-job-meta");
+        if (el) el.textContent = "Auction data last pulled by the scheduled job " + dt.toUTCString().slice(0,22) + " UTC.";
+      }
+    } catch (e) { /* no meta file yet */ }
+  }
+
+  async function loadAll(){
+    const btn = $("refresh-btn");
+    btn.disabled = true;
+    btn.textContent = "Refreshing…";
+
+    const results = await Promise.allSettled([ loadDebt(), loadUpcoming(), loadResults(), loadDataJobMeta(), loadTGA(), loadNetInterest(), loadMonthlyDeficit() ]);
+    results.forEach((r, i) => {
+      if (r.status === "rejected"){
+        const labels = ["debt overview","upcoming auctions","recent results","data job metadata","TGA balance","net interest FYTD","monthly budget balance"];
+        console.error("Failed to load " + labels[i] + ":", r.reason);
+        if (i === 0){
+          $("stat-total").innerHTML = '<span class="error-note">unavailable</span>';
+          $("stat-total-sub").textContent = "could not reach fiscaldata.treasury.gov";
+          $("stat-debt-gdp").innerHTML = '<span class="error-note">unavailable</span>';
+          $("stat-ceiling").innerHTML = '<span class="error-note">unavailable</span>';
+        }
+        if (i === 1){
+          $("upcoming-body").innerHTML = '<div class="state-row error-note">Data file not found yet and the browser could not reach treasurydirect.gov directly. Run the "Update Treasury Data" GitHub Action once, or see it live at treasurydirect.gov/auctions meanwhile.</div>';
+          $("bars-body").innerHTML = '<div class="state-row error-note">Offering data unavailable.</div>';
+        }
+        if (i === 2) $("results-body").innerHTML = '<tr><td colspan="7" class="state-row error-note">Data file not found yet and the browser could not reach treasurydirect.gov directly. Run the "Update Treasury Data" GitHub Action once, or see it live at treasurydirect.gov/auctions meanwhile.</td></tr>';
+        if (i === 4){
+          $("stat-tga").innerHTML = '<span class="error-note">unavailable</span>';
+          $("stat-tga-sub").textContent = "see fiscaldata.treasury.gov/datasets/daily-treasury-statement";
+          $("tga-chart-mount").innerHTML = '<p class="state-row error-note">Trend data unavailable.</p>';
+        }
+        if (i === 5){
+          $("stat-interest").innerHTML = '<span class="error-note">unavailable</span>';
+          $("stat-interest-sub").textContent = "see fiscaldata.treasury.gov/datasets/monthly-treasury-statement";
+        }
+        if (i === 6){
+          $("stat-deficit").innerHTML = '<span class="error-note">unavailable</span>';
+          $("stat-deficit-sub").textContent = "see fiscaldata.treasury.gov/datasets/monthly-treasury-statement";
+          $("stat-deficit-gdp").innerHTML = '<span class="error-note">unavailable</span>';
+        }
+      }
+    });
+
+    $("last-refresh").textContent = "Page last refreshed " + new Date().toUTCString().slice(0,22) + " UTC.";
+    btn.disabled = false;
+    btn.textContent = "Refresh";
+  }
+
+  $("refresh-btn").addEventListener("click", loadAll);
+  loadAll();
+  setInterval(loadAll, AUTO_REFRESH_MS);
+})();
+</script>
+</body>
+</html>
