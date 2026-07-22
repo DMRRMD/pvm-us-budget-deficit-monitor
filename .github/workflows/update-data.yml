@@ -1,0 +1,52 @@
+name: Update Treasury Data
+
+# TreasuryDirect's TA_WS API doesn't send CORS headers, so a browser on
+# GitHub Pages can't call it directly. This job calls it from a GitHub-hosted
+# runner instead (server-to-server, no CORS involved) and commits the result
+# into /data as plain JSON, which the static page then reads same-origin.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # roughly every 30 minutes (GitHub may delay this a bit)
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}      # lets you trigger it manually from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch upcoming (announced) auctions
+        run: |
+          mkdir -p data
+          curl -sSL --fail \
+            "https://www.treasurydirect.gov/TA_WS/securities/announced?format=json" \
+            -o data/upcoming.json
+          # sanity check: must be a JSON array, not an HTML error page
+          python3 -c "import json; d=json.load(open('data/upcoming.json')); assert isinstance(d, list)"
+
+      - name: Fetch recent auction results
+        run: |
+          START=$(date -u -d '45 days ago' +%Y-%m-%d)
+          END=$(date -u +%Y-%m-%d)
+          curl -sSL --fail \
+            "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startdate=${START}&enddate=${END}" \
+            -o data/results.json
+          python3 -c "import json; d=json.load(open('data/results.json')); assert isinstance(d, list)"
+
+      - name: Write fetch metadata
+        run: |
+          printf '{"fetchedAt":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > data/meta.json
+
+      - name: Commit and push if anything changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/upcoming.json data/results.json data/meta.json
+          git diff --cached --quiet || git commit -m "chore: refresh Treasury auction data"
+          git push
