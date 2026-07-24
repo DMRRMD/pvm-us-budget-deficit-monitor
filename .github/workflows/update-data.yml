@@ -61,7 +61,36 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/upcoming.json data/results.json data/meta.json
-          git diff --cached --quiet || git commit -m "chore: refresh Treasury auction data"
-          git push
  
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+ 
+          git commit -m "chore: refresh Treasury auction data"
+ 
+          # The schedule runs every ~2 minutes during announcement windows,
+          # so two runs can genuinely overlap in time. If another run's
+          # commit lands first, a plain push gets rejected — rather than
+          # fail the whole job, re-base this commit onto the latest remote
+          # state and retry a few times before giving up.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed successfully."
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt) — fetching latest and retrying..."
+            git fetch origin main
+            git reset --soft origin/main
+            git add data/upcoming.json data/results.json data/meta.json
+            if git diff --cached --quiet; then
+              echo "Remote already has this data (another run pushed the same update). Nothing left to do."
+              exit 0
+            fi
+            git commit -m "chore: refresh Treasury auction data"
+            sleep $(( (RANDOM % 5) + 2 ))
+          done
+ 
+          echo "Failed to push after multiple attempts."
+          exit 1
         
