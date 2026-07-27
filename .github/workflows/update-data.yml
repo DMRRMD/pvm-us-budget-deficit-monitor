@@ -1,0 +1,78 @@
+name: Update Treasury Data
+
+# TreasuryDirect's TA_WS API doesn't send CORS headers, so a browser on
+# GitHub Pages can't call it directly. This job calls it from a GitHub-hosted
+# runner instead (server-to-server, no CORS involved) and commits the result
+# into /data as plain JSON, which the static page then reads same-origin.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+    - cron: "20-44/2 15 * * 1-5"
+    - cron: "20-44/2 16 * * 1-5"
+    - cron: "50-59/2 16 * * 1-5"
+    - cron: "0-15/2 17 * * 1-5"
+    - cron: "50-59/2 17 * * 1-5"
+    - cron: "0-15/2 18 * * 1-5"
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch upcoming (announced) auctions
+        run: |
+          mkdir -p data
+          curl -sSL --fail "https://www.treasurydirect.gov/TA_WS/securities/announced?format=json" -o data/upcoming.json
+          python3 -c "import json; d=json.load(open('data/upcoming.json')); assert isinstance(d, list)"
+
+      - name: Fetch recent auction results
+        run: |
+          START=$(date -u -d '45 days ago' +%Y-%m-%d)
+          END=$(date -u +%Y-%m-%d)
+          curl -sSL --fail "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startdate=${START}&enddate=${END}" -o data/results.json
+          python3 -c "import json; d=json.load(open('data/results.json')); assert isinstance(d, list)"
+
+      - name: Write fetch metadata
+        run: |
+          printf '{"fetchedAt":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > data/meta.json
+
+      - name: Commit and push if anything changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/upcoming.json data/results.json data/meta.json
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore: refresh Treasury auction data"
+
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed successfully."
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt) — fetching latest and retrying..."
+            git fetch origin main
+            git reset --soft origin/main
+            git add data/upcoming.json data/results.json data/meta.json
+            if git diff --cached --quiet; then
+              echo "Remote already has this data (another run pushed the same update). Nothing left to do."
+              exit 0
+            fi
+            git commit -m "chore: refresh Treasury auction data"
+            sleep $(( (RANDOM % 5) + 2 ))
+          done
+
+          echo "Failed to push after multiple attempts."
+          exit 1
