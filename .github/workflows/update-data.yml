@@ -1,6 +1,3 @@
-No problem — here's the full replacement code again, ready to copy:
-
-yaml
 name: Update Treasury Data
 
 # GitHub Actions enforces a hard minimum interval of 5 minutes on scheduled
