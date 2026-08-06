@@ -1,5 +1,8 @@
+No problem — here's the full replacement code again, ready to copy:
+
+yaml
 name: Update Treasury Data
- 
+
 # GitHub Actions enforces a hard minimum interval of 5 minutes on scheduled
 # workflows. Anything faster than /5 is not honored - GitHub either drops
 # the extra firings or delays the whole schedule unpredictably, worse under
@@ -10,62 +13,68 @@ name: Update Treasury Data
 # it with the Cloudflare Worker dispatcher for tighter coverage during the
 # actual release windows, since that path calls workflow_dispatch directly
 # and is not subject to GitHub's scheduler limits at all.
- 
+
 on:
   schedule:
     - cron: "*/30 * * * *"
- 
+
     - cron: "20-44/5 15 * * 1-5"
     - cron: "20-44/5 16 * * 1-5"
     - cron: "50-59/5 16 * * 1-5"
     - cron: "0-15/5 17 * * 1-5"
     - cron: "50-59/5 17 * * 1-5"
     - cron: "0-15/5 18 * * 1-5"
- 
+
   push:
     branches: [ main ]
- 
+    paths-ignore:
+      - 'data/**'
+
   workflow_dispatch: {}
- 
+
 permissions:
   contents: write
- 
+
+concurrency:
+  group: update-treasury-data
+  cancel-in-progress: true
+
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
- 
+
       - name: Fetch upcoming (announced) auctions
         run: |
           mkdir -p data
           curl -sSL --fail "https://www.treasurydirect.gov/TA_WS/securities/announced?format=json" -o data/upcoming.json
           python3 -c "import json; d=json.load(open('data/upcoming.json')); assert isinstance(d, list)"
- 
+
       - name: Fetch recent auction results
         run: |
           START=$(date -u -d '45 days ago' +%Y-%m-%d)
           END=$(date -u +%Y-%m-%d)
           curl -sSL --fail "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startdate=${START}&enddate=${END}" -o data/results.json
           python3 -c "import json; d=json.load(open('data/results.json')); assert isinstance(d, list)"
- 
+
       - name: Write fetch metadata
         run: |
           printf '{"fetchedAt":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > data/meta.json
- 
+
       - name: Commit and push if anything changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/upcoming.json data/results.json data/meta.json
- 
+
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
- 
+
           git commit -m "chore: refresh Treasury auction data"
- 
+
           for attempt in 1 2 3 4 5; do
             if git push; then
               echo "Pushed successfully."
@@ -82,6 +91,5 @@ jobs:
             git commit -m "chore: refresh Treasury auction data"
             sleep $(( (RANDOM % 5) + 2 ))
           done
- 
+
           echo "Failed to push after multiple attempts."
- 
