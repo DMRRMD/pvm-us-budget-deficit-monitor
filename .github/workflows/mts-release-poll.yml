@@ -1,0 +1,98 @@
+# .github/workflows/mts-release-poll.yml
+#
+# Runs on the scheduled MTS release day, starting a couple minutes before
+# Treasury's announced release time, and polls scripts/fetch_mts_pdf.py in a
+# tight loop until the PDF is live. Cron is UTC; the release time itself is
+# printed in ET on the last page of each MTS PDF.
+#
+# On a `schedule` firing (no workflow_dispatch inputs), year/month/release_time
+# are resolved automatically from the `next_release` block that the previous
+# month's run parsed off the PDF's own "release date for the ... Statement
+# will be ..." notice and stored in data/deficit_latest.json — see
+# scripts/resolve_release_params.py. There is nothing to configure by hand
+# month to month; the chain is self-perpetuating once it has run once.
+#
+# NOTE ON SCHEDULING: GitHub Actions `schedule` cron has a ~5-10 min jitter
+# and a hard 5-minute floor, which is why fetch_mts_pdf.py does its own
+# fine-grained polling internally once the job starts, rather than relying
+# on cron alone to hit the exact minute. Multiple cron firings across the
+# release window are expected and harmless: fetch_mts_pdf.py exits
+# immediately (exit 0, no-op) via --max-sleep-seconds if the announced
+# release time is not yet close, rather than blocking the whole job.
+
+name: MTS Release Poll
+
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "Reporting year (e.g. 2026) — leave blank to use the stored next_release"
+        required: false
+      month:
+        description: "Reporting month, 1-12 — leave blank to use the stored next_release"
+        required: false
+      release_time:
+        description: "Announced release time, ISO8601 (e.g. 2026-09-11T14:00:00-05:00) — leave blank to use the stored next_release"
+        required: false
+  schedule:
+    # Trigger a bit before the typical 8th-workday release window; the
+    # script itself sleeps until close to the real release time (or exits
+    # immediately if it's not close yet) rather than relying on cron to hit
+    # the exact minute. Adjust day-of-month as needed per Treasury's calendar.
+    - cron: "0 17 8-12 * *"
+
+concurrency:
+  group: mts-release-poll
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  poll-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Resolve run parameters
+        id: params
+        run: |
+          if [ -n "${{ github.event.inputs.year }}" ]; then
+            echo "year=${{ github.event.inputs.year }}" >> "$GITHUB_OUTPUT"
+            echo "month=${{ github.event.inputs.month }}" >> "$GITHUB_OUTPUT"
+            echo "release_time=${{ github.event.inputs.release_time }}" >> "$GITHUB_OUTPUT"
+            echo "Using workflow_dispatch inputs."
+          elif python scripts/resolve_release_params.py data/deficit_latest.json >> "$GITHUB_OUTPUT"; then
+            echo "Resolved from data/deficit_latest.json next_release block."
+          else
+            echo "::error::No workflow_dispatch inputs given, and data/deficit_latest.json has no usable next_release block to fall back on. Run this workflow once manually with explicit inputs to seed it."
+            exit 1
+          fi
+
+      - name: Poll for MTS PDF and parse deficit
+        run: |
+          python scripts/fetch_mts_pdf.py \
+            --year "${{ steps.params.outputs.year }}" \
+            --month "${{ steps.params.outputs.month }}" \
+            --release-time "${{ steps.params.outputs.release_time }}" \
+            --max-attempts 90 \
+            --interval-seconds 10 \
+            --pre-poll-seconds 120 \
+            --max-sleep-seconds 900 \
+            --output data/deficit_latest.json
+
+      - name: Commit updated deficit data
+        run: |
+          git config user.name "mts-poller-bot"
+          git config user.email "actions@github.com"
+          git add data/deficit_latest.json
+          git diff --cached --quiet || git commit -m "Update deficit_latest.json from MTS PDF poll"
+          git push
