@@ -956,7 +956,7 @@
     // reported in millions per Treasury's usual MTS convention.
     return Math.abs(n) >= 1e9 ? n : n * 1e6;
   }
-  async function loadMonthlyDeficit(){
+  async function loadMonthlyDeficitFromAPI(){
     const url = `${FISCAL_BASE}/v1/accounting/mts/mts_table_1?sort=-record_date&page[size]=15`;
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) throw new Error("mts_table_1 HTTP " + res.status);
@@ -977,6 +977,45 @@
     $("stat-deficit").textContent = (isDeficit ? "−$" : "+$") + (Math.abs(balance)/1e9).toFixed(1) + "B";
     $("stat-deficit").className = "v " + (isDeficit ? "red" : "green");
     $("stat-deficit-sub").textContent = monthLabel + " · " + (isDeficit ? "deficit" : "surplus") + " (outlays − receipts)";
+  }
+
+  // Fast path: scripts/fetch_mts_pdf.py (run by .github/workflows/mts-release-poll.yml)
+  // polls the MTS PDF directly at its announced release time and commits
+  // data/deficit_latest.json same-origin, well before the Fiscal Data API
+  // usually catches up. Returns true on success so the caller can skip the
+  // API fallback; returns false (without touching the DOM) if the file is
+  // missing, malformed, or too stale to trust, so the caller falls back.
+  async function tryLoadMonthlyDeficitFromLocalJSON(){
+    let json;
+    try {
+      const res = await fetch("data/deficit_latest.json", { cache: "no-store" });
+      if (!res.ok) return false;
+      json = await res.json();
+    } catch (e) { return false; }
+
+    const { record_period, month_deficit_millions } = json;
+    if (typeof month_deficit_millions !== "number" || !record_period) return false;
+
+    const recordDate = new Date(record_period + " 1");
+    if (isNaN(recordDate.getTime())) return false;
+    const now = new Date();
+    const ageMonths = (now.getUTCFullYear() - recordDate.getUTCFullYear()) * 12
+      + (now.getUTCMonth() - recordDate.getUTCMonth());
+    // Stale beyond ~2 fiscal periods means the poller likely missed a
+    // release (or stalled) — prefer the live API over a known-old figure.
+    if (ageMonths > 2) return false;
+
+    const balance = month_deficit_millions * -1e6; // source: negative = deficit; balance: positive = deficit
+    const isDeficit = balance >= 0;
+    $("stat-deficit").textContent = (isDeficit ? "−$" : "+$") + (Math.abs(balance)/1e9).toFixed(1) + "B";
+    $("stat-deficit").className = "v " + (isDeficit ? "red" : "green");
+    $("stat-deficit-sub").textContent = record_period + " · " + (isDeficit ? "deficit" : "surplus") + " (outlays − receipts)";
+    return true;
+  }
+
+  async function loadMonthlyDeficit(){
+    if (await tryLoadMonthlyDeficitFromLocalJSON()) return;
+    await loadMonthlyDeficitFromAPI();
   }
 
   function renderBars(rows){
