@@ -22,6 +22,7 @@ Output:
         "record_period": "August 2026",
         "month_deficit_millions": <float, negative = deficit>,
         "fytd_deficit_millions": <float>,
+        "net_interest_fytd_millions": <float | null>,
         "source": "mts_pdf",
         "source_url": "...",
         "fetched_at": "<ISO8601 UTC>",
@@ -116,6 +117,20 @@ RECORD_PERIOD_RE = re.compile(
     r"For Fiscal Year \d{4} Through (\w+) (\d{1,2}), (\d{4})"
 )
 
+# Table 9 ("Summary of Receipts by Source, and Outlays by Function") carries
+# a "Net Interest" outlay line with This Month | Fiscal Year to Date | Prior
+# Period columns, same shape as the Table 1 deficit line above. "Net Interest"
+# also appears as bare text in cover-page highlight boxes and a legend list
+# earlier in the PDF, so this is only searched for on the page carrying the
+# Table 9 header, not the whole document.
+TABLE9_HEADER_RE = re.compile(r"Table\s+9\.\s+Summary of Receipts", re.IGNORECASE)
+
+NET_INTEREST_LINE_RE = re.compile(
+    r"Net Interest\s+"
+    r"(-?[\d,]+)\s+"      # this month
+    r"(-?[\d,]+)"         # fiscal year to date
+)
+
 # Printed on the last page of every issue, e.g.:
 #   "The release date for the August 2026 Statement will be 2:00 p.m. EST
 #    September 11, 2026."
@@ -165,6 +180,22 @@ def parse_next_release(pdf) -> dict | None:
     return None
 
 
+def parse_net_interest(pdf) -> float | None:
+    """Find Table 9 and pull the Net Interest fiscal-year-to-date outlay
+    figure ($ millions). Returns None if Table 9 or its Net Interest line
+    can't be located — callers should treat that as "field unavailable",
+    not a hard failure, since the headline deficit figure is the priority."""
+    for page in pdf.pages:
+        text = page.extract_text() or ""
+        if not TABLE9_HEADER_RE.search(text):
+            continue
+        m = NET_INTEREST_LINE_RE.search(text)
+        if not m:
+            continue
+        return float(m.group(2).replace(",", ""))
+    return None
+
+
 def parse_deficit(pdf_bytes: bytes) -> dict:
     tmp_path = Path("/tmp/_mts_current.pdf")
     tmp_path.write_bytes(pdf_bytes)
@@ -193,6 +224,7 @@ def parse_deficit(pdf_bytes: bytes) -> dict:
                 break
 
         next_release = parse_next_release(pdf)
+        net_interest_fytd = parse_net_interest(pdf)
 
     if month_val is None:
         raise ValueError("Could not locate 'Total Surplus (+) or Deficit (-)' line in PDF")
@@ -201,6 +233,7 @@ def parse_deficit(pdf_bytes: bytes) -> dict:
         "record_period": record_period,
         "month_deficit_millions": month_val,
         "fytd_deficit_millions": fytd_val,
+        "net_interest_fytd_millions": net_interest_fytd,
         "next_release": next_release,
     }
 
@@ -304,6 +337,7 @@ def main() -> int:
         "record_period": parsed["record_period"] or f"{CAL_MONTH_NAMES[args.month]} {args.year}",
         "month_deficit_millions": parsed["month_deficit_millions"],
         "fytd_deficit_millions": parsed["fytd_deficit_millions"],
+        "net_interest_fytd_millions": parsed["net_interest_fytd_millions"],
         "source": "mts_pdf",
         "source_url": PDF_URL_TEMPLATE.format(year=args.year, month=args.month),
         "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),

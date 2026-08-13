@@ -909,7 +909,7 @@
   // row per date (parent total plus sub-lines), so among rows sharing the
   // most recent record_date, the largest FYTD figure is treated as the
   // top-level total.
-  async function loadNetInterest(){
+  async function loadNetInterestFromAPI(){
     const filterVal = encodeURIComponent("Net Interest");
     const url = `${FISCAL_BASE}/v1/accounting/mts/mts_table_9?filter=classification_desc:eq:${filterVal}&sort=-record_date&page[size]=10`;
     const res = await fetch(url, { cache: "no-store" });
@@ -941,6 +941,43 @@
       sub += " · " + monthLabel + ": $" + (monthAmt/1e9).toFixed(1) + "B";
     }
     $("stat-interest-sub").textContent = sub;
+  }
+
+  // Fast path: scripts/fetch_mts_pdf.py also pulls the Net Interest FYTD
+  // line off Table 9 of the same MTS PDF it parses for the deficit figures
+  // (see tryLoadMonthlyDeficitFromLocalJSON above for why this beats the
+  // Fiscal Data API on freshness). Returns true on success so the caller
+  // can skip the API fallback.
+  async function tryLoadNetInterestFromLocalJSON(){
+    let json;
+    try {
+      const res = await fetch("data/deficit_latest.json", { cache: "no-store" });
+      if (!res.ok) return false;
+      json = await res.json();
+    } catch (e) { return false; }
+
+    const { record_period, net_interest_fytd_millions } = json;
+    if (typeof net_interest_fytd_millions !== "number" || !record_period) return false;
+
+    const recordDate = new Date(record_period + " 1");
+    if (isNaN(recordDate.getTime())) return false;
+    const now = new Date();
+    const ageMonths = (now.getUTCFullYear() - recordDate.getUTCFullYear()) * 12
+      + (now.getUTCMonth() - recordDate.getUTCMonth());
+    // Same staleness guard as the deficit fast path: prefer the live API
+    // over a known-old figure if the poller missed a release.
+    if (ageMonths > 2) return false;
+
+    const fytd = net_interest_fytd_millions * 1e6; // MTS PDF reports millions
+    const fyLabel = "FY" + (recordDate.getUTCMonth() >= 9 ? recordDate.getUTCFullYear() + 1 : recordDate.getUTCFullYear());
+    $("stat-interest").textContent = "$" + (fytd/1e9).toFixed(1) + "B";
+    $("stat-interest-sub").textContent = fyLabel + " to date, through " + record_period;
+    return true;
+  }
+
+  async function loadNetInterest(){
+    if (await tryLoadNetInterestFromLocalJSON()) return;
+    await loadNetInterestFromAPI();
   }
 
   // ---------- Monthly budget balance ----------

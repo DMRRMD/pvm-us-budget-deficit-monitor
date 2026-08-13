@@ -2,9 +2,10 @@
   "record_period": "July 2026",
   "month_deficit_millions": -432308.0,
   "fytd_deficit_millions": -1798816.0,
+  "net_interest_fytd_millions": 931356.0,
   "source": "mts_pdf",
   "source_url": "https://fiscaldata.treasury.gov/static-data/published-reports/mts/MonthlyTreasuryStatement_202607.pdf",
-  "fetched_at": "2026-08-12T19:10:11.424682+00:00",
+  "fetched_at": "2026-08-13T06:05:21.694222+00:00",
   "next_release": {
     "report_year": 2026,
     "report_month": 8,
