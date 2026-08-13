@@ -2,6 +2,10 @@ name: SPIKE - CBO reachability check
 
 on:
   workflow_dispatch: {}
+  push:
+    branches: [ feature/net-interest-and-cbo-forecast ]
+    paths:
+      - '.github/workflows/_spike-cbo-reachability.yml'
 
 jobs:
   probe:
