@@ -211,17 +211,27 @@
   .stat-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:14px; }
   @media (max-width:600px){ .stat-grid{ grid-template-columns:repeat(2, 1fr); } }
   .stat-card{
+    display:flex; flex-direction:column;
     background:var(--panel); border:2px solid #22c55e; border-radius:var(--radius);
     box-shadow:0 0 8px rgba(34,197,94,0.35);
     padding:16px 16px 14px;
   }
   .stat-card .k{
     font-family:var(--mono); font-size:10.5px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase;
-    color:#ffffff; margin:0 0 9px;
+    color:#ffffff; margin:0 0 9px; line-height:1.35;
   }
   .stat-card .v{
     font-family:var(--mono); font-weight:700; font-size:24px; letter-spacing:-0.01em;
     font-variant-numeric:tabular-nums; color:var(--text); line-height:1.1;
+    /* Label lengths vary a lot (e.g. "Debt ceiling" vs "TGA balance
+       (Current US Govt Cash Balance)"), so they wrap to different numbers
+       of lines depending on card width — top-anchoring the value after the
+       label would put it at a different height on every card. Grid rows
+       stretch every card in a row to equal height by default, so instead
+       the value+sub block is pushed to the bottom of that shared height
+       with margin-top:auto, keeping it level across the row regardless of
+       label wrapping.  */
+    margin:auto 0 0;
   }
   .stat-card .v.blue{ color:var(--blue); }
   .stat-card .v.green{ color:var(--green); }
