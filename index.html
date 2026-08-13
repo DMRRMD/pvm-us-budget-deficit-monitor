@@ -217,7 +217,14 @@
   }
   .stat-card .k{
     font-family:var(--mono); font-size:10.5px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase;
-    color:#ffffff; margin:0 0 9px;
+    color:#ffffff; margin:0 0 9px; line-height:1.4;
+    /* Labels range from "Debt ceiling" to "TGA balance (Current US Govt
+       Cash Balance)", so they wrap to different numbers of lines depending
+       on card width. Reserving space for the longest label's worst-case
+       wrap (3 lines at this width) keeps the value line below starting at
+       the same height on every card. min-height (not height) so a label
+       that somehow needs more room just grows the card instead of clipping. */
+    min-height:45px; display:flex; align-items:flex-end;
   }
   .stat-card .v{
     font-family:var(--mono); font-weight:700; font-size:24px; letter-spacing:-0.01em;
