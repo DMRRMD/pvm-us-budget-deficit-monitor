@@ -1238,6 +1238,10 @@
   // URL isn't independently documented, so a couple of plausible candidates
   // are tried; if both fail, this just returns an empty list rather than
   // breaking anything else on the page.
+  // These two are guessed endpoint URLs and the rows they add are optional
+  // extras, so they get a short leash rather than the 45s the load-bearing
+  // Fiscal Data calls are allowed.
+  const PENDING_TIMEOUT_MS = 8000;
   const PENDING_ENDPOINT_CANDIDATES = [
     `${FISCAL_BASE}/v1/accounting/od/upcoming_auctions`,
     `${FISCAL_BASE}/v1/accounting/od/auctions_upcoming`
@@ -1245,7 +1249,7 @@
   async function loadPendingAuctions(){
     for (const url of PENDING_ENDPOINT_CANDIDATES){
       try {
-        const res = await fetchFresh(`${url}?sort=-record_date&page[size]=60`);
+        const res = await fetchFresh(`${url}?sort=-record_date&page[size]=60`, PENDING_TIMEOUT_MS);
         if (!res.ok) continue;
         const json = await res.json();
         const rows = json.data || [];
@@ -1269,6 +1273,15 @@
       .sort((a,b) => a.auctionDate - b.auctionDate)
       .slice(0, 60);
 
+    // The confirmed list comes from a static file that is already on disk, so
+    // it renders straight away. The pending list below is a live Fiscal Data
+    // call and used to be awaited before anything was drawn — which meant a
+    // slow API answer held up auctions the page already had in hand, leaving
+    // the panel blank for as long as both endpoint candidates took to time
+    // out. It paints twice now: confirmed first, then again with pending
+    // folded in if that call answers.
+    renderUpcoming(rows.map(r => ({ ...r, pending: false })), rows);
+
     // Auctions TreasuryDirect already lists on its upcoming-auctions page
     // before the offering size is formally confirmed. Uses the same
     // deterministic date parser as everything else on this page, so this
@@ -1277,6 +1290,8 @@
     // with a guessed date.
     const confirmedCusips = new Set(rows.map(r => r.raw.cusip).filter(Boolean));
     const pendingRaw = await loadPendingAuctions();
+    if (!pendingRaw.length) return;
+
     const pendingRows = pendingRaw
       .filter(p => p.cusip && !confirmedCusips.has(p.cusip))
       .filter(p => /^(note|bond|tips|frn)$/i.test(p.security_type || ""))
@@ -1284,11 +1299,19 @@
       .filter(p => p.auctionDate && p.auctionDate >= todayUTC())
       .sort((a,b) => a.auctionDate - b.auctionDate);
 
+    if (!pendingRows.length) return;
+
     const combined = rows.map(r => ({ ...r, pending: false }))
       .concat(pendingRows)
       .sort((a,b) => a.auctionDate - b.auctionDate);
+    renderUpcoming(combined, rows, pendingRows.length);
+  }
 
-    $("upcoming-count").textContent = rows.length + " confirmed" + (pendingRows.length ? " · " + pendingRows.length + " pending" : "");
+  // Shared by both passes of loadUpcoming above, so the panel renders
+  // identically whether or not the pending-auctions call ever answers.
+  function renderUpcoming(combined, rows, pendingCount){
+    const body = $("upcoming-body");
+    $("upcoming-count").textContent = rows.length + " confirmed" + (pendingCount ? " · " + pendingCount + " pending" : "");
 
     if (!combined.length){
       body.innerHTML = '<div class="state-row">No currently announced or pending auctions were found.</div>';
