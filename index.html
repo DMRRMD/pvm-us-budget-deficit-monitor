@@ -572,12 +572,34 @@
 
   const $ = (id) => document.getElementById(id);
 
+  // A fetch() that never hangs forever. Without this, a stalled request
+  // (slow link, saturated connection, silently-dropped packets) leaves its
+  // promise pending indefinitely — loadAll()'s error handler never fires and
+  // the card sits on its "loading…" placeholder with no explanation. An
+  // aborted request rejects like any other failure, so the existing
+  // per-card error messages take over as intended.
+  const FETCH_TIMEOUT_MS = 15000;
+  async function fetchNoStore(url, timeoutMs){
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs || FETCH_TIMEOUT_MS);
+    try {
+      return await fetch(url, { cache: "no-store", signal: ctrl.signal });
+    } catch (e) {
+      if (e && e.name === "AbortError"){
+        throw new Error("timed out after " + ((timeoutMs || FETCH_TIMEOUT_MS)/1000) + "s: " + url);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function fetchJsonWithFallback(localUrl, remoteUrl){
     try {
-      const res = await fetch(localUrl, { cache: "no-store" });
+      const res = await fetchNoStore(localUrl);
       if (res.ok) return { data: await res.json(), source: "local" };
     } catch (e) { /* fall through to remote */ }
-    const res = await fetch(remoteUrl, { cache: "no-store" });
+    const res = await fetchNoStore(remoteUrl);
     if (!res.ok) throw new Error("HTTP " + res.status + " for " + remoteUrl);
     return { data: await res.json(), source: "remote" };
   }
@@ -843,7 +865,7 @@
   // ---------- debt overview ----------
   async function loadDebt(){
     const url = `${FISCAL_BASE}/v2/accounting/od/debt_to_penny?fields=record_date,tot_pub_debt_out_amt,debt_held_public_amt,intragov_hold_amt&sort=-record_date&page[size]=${TREND_DAYS}&page[number]=1`;
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetchNoStore(url);
     if (!res.ok) throw new Error("debt_to_penny HTTP " + res.status);
     const json = await res.json();
     const rows = json.data || [];
@@ -902,7 +924,7 @@
   // current one, open_today_bal is the historical fallback if it's ever null.
   async function loadTGA(){
     const url = `${FISCAL_BASE}/v1/accounting/dts/operating_cash_balance?fields=record_date,account_type,open_today_bal,close_today_bal&sort=-record_date&page[size]=2500`;
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetchNoStore(url);
     if (!res.ok) throw new Error("operating_cash_balance HTTP " + res.status);
     const json = await res.json();
     const rows = json.data || [];
@@ -935,7 +957,7 @@
   async function loadNetInterestFromAPI(){
     const filterVal = encodeURIComponent("Net Interest");
     const url = `${FISCAL_BASE}/v1/accounting/mts/mts_table_9?filter=classification_desc:eq:${filterVal}&sort=-record_date&page[size]=10`;
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetchNoStore(url);
     if (!res.ok) throw new Error("mts_table_9 HTTP " + res.status);
     const json = await res.json();
     const rows = json.data || [];
@@ -974,7 +996,7 @@
   async function tryLoadNetInterestFromLocalJSON(){
     let json;
     try {
-      const res = await fetch("data/deficit_latest.json", { cache: "no-store" });
+      const res = await fetchNoStore("data/deficit_latest.json");
       if (!res.ok) return false;
       json = await res.json();
     } catch (e) { return false; }
@@ -1018,7 +1040,7 @@
   }
   async function loadMonthlyDeficitFromAPI(){
     const url = `${FISCAL_BASE}/v1/accounting/mts/mts_table_1?sort=-record_date&page[size]=15`;
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetchNoStore(url);
     if (!res.ok) throw new Error("mts_table_1 HTTP " + res.status);
     const json = await res.json();
     const rows = json.data || [];
@@ -1048,7 +1070,7 @@
   async function tryLoadMonthlyDeficitFromLocalJSON(){
     let json;
     try {
-      const res = await fetch("data/deficit_latest.json", { cache: "no-store" });
+      const res = await fetchNoStore("data/deficit_latest.json");
       if (!res.ok) return false;
       json = await res.json();
     } catch (e) { return false; }
@@ -1115,7 +1137,7 @@
   async function loadPendingAuctions(){
     for (const url of PENDING_ENDPOINT_CANDIDATES){
       try {
-        const res = await fetch(`${url}?sort=-record_date&page[size]=60`, { cache: "no-store" });
+        const res = await fetchNoStore(`${url}?sort=-record_date&page[size]=60`);
         if (!res.ok) continue;
         const json = await res.json();
         const rows = json.data || [];
@@ -1309,7 +1331,7 @@
 
   async function loadDataJobMeta(){
     try {
-      const res = await fetch(LOCAL_META, { cache: "no-store" });
+      const res = await fetchNoStore(LOCAL_META);
       if (!res.ok) return;
       const meta = await res.json();
       if (meta && meta.fetchedAt){
@@ -1332,6 +1354,10 @@
           $("stat-total-sub").textContent = "could not reach fiscaldata.treasury.gov";
           $("stat-debt-gdp").innerHTML = '<span class="error-note">unavailable</span>';
           $("stat-ceiling").innerHTML = '<span class="error-note">unavailable</span>';
+          ["stat-rate-min","stat-rate-hour","stat-delta"].forEach(id => {
+            const el = $(id);
+            if (el) el.innerHTML = '<span class="error-note">unavailable</span>';
+          });
         }
         if (i === 1){
           $("upcoming-body").innerHTML = '<div class="state-row error-note">Data file not found yet and the browser could not reach treasurydirect.gov directly. Run the "Update Treasury Data" GitHub Action once, or see it live at treasurydirect.gov/auctions meanwhile.</div>';

@@ -55,6 +55,44 @@ jobs:
           curl -sSL --fail "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startdate=${START}&enddate=${END}" -o data/results.json
           python3 -c "import json; d=json.load(open('data/results.json')); assert isinstance(d, list)"
 
+      # TreasuryDirect's /securities/search endpoint silently ignores the
+      # startdate/enddate parameters above and returns its entire archive
+      # back to 1979 — ~11,000 records at 120 fields each, about 37 MB. The
+      # dashboard only ever renders the trailing window (and only the top 20
+      # rows of it), but the browser was downloading all 37 MB on every page
+      # load and again on every 5-minute auto-refresh. Trimming here is the
+      # only reliable place to do it, since the API won't honour the filter.
+      - name: Trim results to the trailing window
+        run: |
+          python3 - <<'PY'
+          import json, datetime
+
+          KEEP_DAYS = 120  # comfortably wider than the dashboard's 45-day view
+
+          with open("data/results.json") as f:
+              rows = json.load(f)
+
+          cutoff = (datetime.date.today() - datetime.timedelta(days=KEEP_DAYS)).isoformat()
+
+          def in_window(r):
+              # Keep anything auctioned inside the window, plus announced-but-
+              # not-yet-auctioned securities (auctionDate in the future).
+              d = (r.get("auctionDate") or "")[:10]
+              return bool(d) and d >= cutoff
+
+          kept = [r for r in rows if in_window(r)]
+
+          # Never write an empty file: if the shape or field name ever changes
+          # upstream, keep the full payload rather than blanking the table.
+          if not kept:
+              raise SystemExit("Trim matched 0 records — leaving results.json untouched.")
+
+          with open("data/results.json", "w") as f:
+              json.dump(kept, f, separators=(",", ":"))
+
+          print(f"Trimmed {len(rows)} -> {len(kept)} records (cutoff {cutoff}).")
+          PY
+
       - name: Write fetch metadata
         run: |
           printf '{"fetchedAt":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > data/meta.json
