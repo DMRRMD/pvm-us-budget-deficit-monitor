@@ -579,6 +579,12 @@
   // aborted request rejects like any other failure, so the existing
   // per-card error messages take over as intended.
   const FETCH_TIMEOUT_MS = 15000;
+  // The Fiscal Data API can take well over 15s to answer from cold — that
+  // was the 15s abort firing on first load and leaving the TGA card empty
+  // until a refresh served it from the revalidated browser cache. These two
+  // series now come from a static snapshot; this longer timeout only applies
+  // to the API fallback, so a slow cold answer is still better than none.
+  const SLOW_API_TIMEOUT_MS = 45000;
   async function fetchFresh(url, timeoutMs){
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs || FETCH_TIMEOUT_MS);
@@ -869,22 +875,36 @@
   }
 
   // ---------- debt overview ----------
-  async function loadDebt(){
-    const url = `${FISCAL_BASE}/v2/accounting/od/debt_to_penny?fields=record_date,tot_pub_debt_out_amt,debt_held_public_amt,intragov_hold_amt&sort=-record_date&page[size]=${TREND_DAYS}&page[number]=1`;
-    const res = await fetchFresh(url);
-    if (!res.ok) throw new Error("debt_to_penny HTTP " + res.status);
-    const json = await res.json();
-    const rows = json.data || [];
-    if (!rows.length) throw new Error("empty debt series");
+  // Fast path for the debt overview — see the note on the TGA snapshot above.
+  // Debt to the Penny updates once per business day.
+  async function tryLoadDebtFromLocalJSON(){
+    let json;
+    try {
+      const res = await fetchFresh("data/debt_latest.json");
+      if (!res.ok) return false;
+      json = await res.json();
+    } catch (e) { return false; }
 
-    const latest = rows[0];
-    const total = parseFloat(latest.tot_pub_debt_out_amt);
-    const heldPublic = parseFloat(latest.debt_held_public_amt);
-    const intragov = parseFloat(latest.intragov_hold_amt);
+    const { record_date, total_debt, avg_daily_change, avg_daily_window_days, monthly } = json;
+    if (typeof total_debt !== "number" || !record_date) return false;
+    const ageDays = (Date.now() - new Date(record_date).getTime()) / 86400000;
+    if (!isFinite(ageDays) || ageDays > 7) return false;
 
+    paintDebtCards(total_debt, record_date, avg_daily_change, avg_daily_window_days);
+
+    if (Array.isArray(monthly) && monthly.length){
+      renderBarChart(aggregateMonthly(monthly, 13),
+        { mountId: "chart-mount", rangeId: "chart-range", color: "#3b82f6", label: "Total public debt outstanding, monthly" });
+    }
+    return true;
+  }
+
+  // Shared by both paths so the snapshot and the live API can never drift
+  // into rendering the same figures differently.
+  function paintDebtCards(total, recordDate, avgDaily, windowDays){
     $("stat-total").innerHTML = fmtUSD(total, {compact:true});
     $("stat-total").className = "v blue";
-    $("stat-total-sub").textContent = "as of " + fmtDate(latest.record_date);
+    $("stat-total-sub").textContent = "as of " + fmtDate(recordDate);
 
     const debtToGdpPct = (total / NOMINAL_GDP_USD) * 100;
     $("stat-debt-gdp").textContent = debtToGdpPct.toFixed(1) + "%";
@@ -895,29 +915,46 @@
     $("stat-ceiling").className = "v " + (ceilingUsedPct >= 95 ? "red" : ceilingUsedPct >= 85 ? "amber" : "");
     $("stat-ceiling-sub").textContent = ceilingUsedPct.toFixed(1) + "% used (vs total debt, a close proxy for debt subject to limit) · " + DEBT_CEILING_SET_LABEL + " · " + DEBT_CEILING_ESTIMATE_LABEL;
 
-    // Implied per-minute / per-hour growth rate, and the smoothed daily
-    // change — all derived from the same trailing window, not a live tick
-    // (Treasury only publishes once a day) and not the single latest day's
-    // actual (lumpy) change.
+    if (typeof avgDaily !== "number" || !windowDays) return;
+    const up = avgDaily >= 0;
+    const cls = "v " + (up ? "red" : "green");
+    const note = `<span style="color:var(--text);">${windowDays}-day</span> smoothed average — won't match any single day's actual change`;
+
+    $("stat-delta").innerHTML = (up ? "+" : "−") + fmtUSD(Math.abs(avgDaily), {compact:true});
+    $("stat-delta").className = cls;
+    $("stat-delta-sub").innerHTML = `<span class="${up ? 'trend-up' : 'trend-down'}">${up ? "▲" : "▼"}</span> ` + note;
+
+    $("stat-rate-min").innerHTML = (up ? "+" : "−") + fmtMio(Math.abs(avgDaily / 1440));
+    $("stat-rate-min").className = cls;
+    $("stat-rate-min-sub").innerHTML = note;
+    $("stat-rate-hour").innerHTML = (up ? "+" : "−") + fmtMioRound(Math.abs(avgDaily / 24));
+    $("stat-rate-hour").className = cls;
+    $("stat-rate-hour-sub").innerHTML = note;
+  }
+
+  async function loadDebt(){
+    if (await tryLoadDebtFromLocalJSON()) return;
+    await loadDebtFromAPI();
+  }
+
+  async function loadDebtFromAPI(){
+    const url = `${FISCAL_BASE}/v2/accounting/od/debt_to_penny?fields=record_date,tot_pub_debt_out_amt,debt_held_public_amt,intragov_hold_amt&sort=-record_date&page[size]=${TREND_DAYS}&page[number]=1`;
+    const res = await fetchFresh(url, SLOW_API_TIMEOUT_MS);
+    if (!res.ok) throw new Error("debt_to_penny HTTP " + res.status);
+    const json = await res.json();
+    const rows = json.data || [];
+    if (!rows.length) throw new Error("empty debt series");
+
+    const latest = rows[0];
+    const total = parseFloat(latest.tot_pub_debt_out_amt);
+
     const windowDays = Math.min(90, rows.length - 1);
+    let avgDaily = null;
     if (windowDays > 0){
       const totalWindowAgo = parseFloat(rows[windowDays].tot_pub_debt_out_amt);
-      const avgDaily = (total - totalWindowAgo) / windowDays;
-      const upDaily = avgDaily >= 0;
-      $("stat-delta").innerHTML = (upDaily ? "+" : "−") + fmtUSD(Math.abs(avgDaily), {compact:true});
-      $("stat-delta").className = "v " + (upDaily ? "red" : "green");
-      $("stat-delta-sub").innerHTML = `<span class="${upDaily ? 'trend-up' : 'trend-down'}">${upDaily ? "▲" : "▼"}</span> <span style="color:var(--text);">${windowDays}-day</span> smoothed average — won't match any single day's actual change`;
-
-      const perMinute = avgDaily / 1440;
-      const perHour = avgDaily / 24;
-      const upRate = avgDaily >= 0;
-      $("stat-rate-min").innerHTML = (upRate ? "+" : "−") + fmtMio(Math.abs(perMinute));
-      $("stat-rate-min").className = "v " + (upRate ? "red" : "green");
-      $("stat-rate-min-sub").innerHTML = `<span style="color:var(--text);">${windowDays}-day</span> smoothed average — won't match any single day's actual change`;
-      $("stat-rate-hour").innerHTML = (upRate ? "+" : "−") + fmtMioRound(Math.abs(perHour));
-      $("stat-rate-hour").className = "v " + (upRate ? "red" : "green");
-      $("stat-rate-hour-sub").innerHTML = `<span style="color:var(--text);">${windowDays}-day</span> smoothed average — won't match any single day's actual change`;
+      avgDaily = (total - totalWindowAgo) / windowDays;
     }
+    paintDebtCards(total, latest.record_date, avgDaily, windowDays);
 
     const points = rows.slice().reverse().map(r => ({ d: r.record_date, v: parseFloat(r.tot_pub_debt_out_amt) }));
     renderBarChart(aggregateMonthly(points, 13), { mountId: "chart-mount", rangeId: "chart-range", color: "#3b82f6", label: "Total public debt outstanding, monthly" });
@@ -943,8 +980,45 @@
   // empty until the whole series arrived. These are two requests now: a
   // small one that paints the number immediately, then the series for the
   // chart underneath it. A failure of the second leaves the first standing.
+  // Fast path: scripts/fetch_fiscal_snapshot.py writes data/tga_latest.json
+  // in CI. The DTS publishes once per business day, so calling the API from
+  // every browser on every page load bought nothing and cost seconds — this
+  // is the same static-snapshot pattern already used for the MTS deficit.
+  // Returns false without touching the DOM if the file is missing, malformed
+  // or stale, so the caller falls back to the live API.
+  async function tryLoadTGAFromLocalJSON(){
+    let json;
+    try {
+      const res = await fetchFresh("data/tga_latest.json");
+      if (!res.ok) return false;
+      json = await res.json();
+    } catch (e) { return false; }
+
+    const { record_date, balance_millions, monthly_millions } = json;
+    if (typeof balance_millions !== "number" || !record_date) return false;
+
+    // DTS is a business-day series, so a snapshot older than about a week
+    // means the job has stalled — prefer the live API over a known-old figure.
+    const ageDays = (Date.now() - new Date(record_date).getTime()) / 86400000;
+    if (!isFinite(ageDays) || ageDays > 7) return false;
+
+    $("stat-tga").textContent = fmtUSD(balance_millions * 1e6, {compact:true});
+    $("stat-tga-sub").textContent = "as of " + fmtDate(record_date);
+
+    if (Array.isArray(monthly_millions) && monthly_millions.length){
+      renderBarChart(aggregateMonthly(monthly_millions.map(p => ({ d: p.d, v: p.v * 1e6 })), 13),
+        { mountId: "tga-chart-mount", rangeId: "tga-chart-range", color: "#22c55e", label: "TGA balance, monthly" });
+    }
+    return true;
+  }
+
   async function loadTGA(){
-    const res = await fetchFresh(`${TGA_URL}&page[size]=30`);
+    if (await tryLoadTGAFromLocalJSON()) return;
+    await loadTGAFromAPI();
+  }
+
+  async function loadTGAFromAPI(){
+    const res = await fetchFresh(`${TGA_URL}&page[size]=30`, SLOW_API_TIMEOUT_MS);
     if (!res.ok) throw new Error("operating_cash_balance HTTP " + res.status);
     const tgaRows = tgaRowsFrom(await res.json());
     if (!tgaRows.length) throw new Error("no TGA rows found");
@@ -963,7 +1037,7 @@
       // aggregateMonthly only ever renders the last 13 months, so a 400-day
       // window is all the chart can display — the old 2,500-row request was
       // pulling roughly twice what was drawn.
-      const res = await fetchFresh(`${TGA_URL}&page[size]=1600`);
+      const res = await fetchFresh(`${TGA_URL}&page[size]=1600`, SLOW_API_TIMEOUT_MS);
       if (!res.ok) throw new Error("operating_cash_balance HTTP " + res.status);
       const tgaRows = tgaRowsFrom(await res.json());
       if (!tgaRows.length) throw new Error("no TGA rows found");
@@ -1164,6 +1238,10 @@
   // URL isn't independently documented, so a couple of plausible candidates
   // are tried; if both fail, this just returns an empty list rather than
   // breaking anything else on the page.
+  // These two are guessed endpoint URLs and the rows they add are optional
+  // extras, so they get a short leash rather than the 45s the load-bearing
+  // Fiscal Data calls are allowed.
+  const PENDING_TIMEOUT_MS = 8000;
   const PENDING_ENDPOINT_CANDIDATES = [
     `${FISCAL_BASE}/v1/accounting/od/upcoming_auctions`,
     `${FISCAL_BASE}/v1/accounting/od/auctions_upcoming`
@@ -1171,7 +1249,7 @@
   async function loadPendingAuctions(){
     for (const url of PENDING_ENDPOINT_CANDIDATES){
       try {
-        const res = await fetchFresh(`${url}?sort=-record_date&page[size]=60`);
+        const res = await fetchFresh(`${url}?sort=-record_date&page[size]=60`, PENDING_TIMEOUT_MS);
         if (!res.ok) continue;
         const json = await res.json();
         const rows = json.data || [];
@@ -1195,6 +1273,15 @@
       .sort((a,b) => a.auctionDate - b.auctionDate)
       .slice(0, 60);
 
+    // The confirmed list comes from a static file that is already on disk, so
+    // it renders straight away. The pending list below is a live Fiscal Data
+    // call and used to be awaited before anything was drawn — which meant a
+    // slow API answer held up auctions the page already had in hand, leaving
+    // the panel blank for as long as both endpoint candidates took to time
+    // out. It paints twice now: confirmed first, then again with pending
+    // folded in if that call answers.
+    renderUpcoming(rows.map(r => ({ ...r, pending: false })), rows);
+
     // Auctions TreasuryDirect already lists on its upcoming-auctions page
     // before the offering size is formally confirmed. Uses the same
     // deterministic date parser as everything else on this page, so this
@@ -1203,6 +1290,8 @@
     // with a guessed date.
     const confirmedCusips = new Set(rows.map(r => r.raw.cusip).filter(Boolean));
     const pendingRaw = await loadPendingAuctions();
+    if (!pendingRaw.length) return;
+
     const pendingRows = pendingRaw
       .filter(p => p.cusip && !confirmedCusips.has(p.cusip))
       .filter(p => /^(note|bond|tips|frn)$/i.test(p.security_type || ""))
@@ -1210,11 +1299,19 @@
       .filter(p => p.auctionDate && p.auctionDate >= todayUTC())
       .sort((a,b) => a.auctionDate - b.auctionDate);
 
+    if (!pendingRows.length) return;
+
     const combined = rows.map(r => ({ ...r, pending: false }))
       .concat(pendingRows)
       .sort((a,b) => a.auctionDate - b.auctionDate);
+    renderUpcoming(combined, rows, pendingRows.length);
+  }
 
-    $("upcoming-count").textContent = rows.length + " confirmed" + (pendingRows.length ? " · " + pendingRows.length + " pending" : "");
+  // Shared by both passes of loadUpcoming above, so the panel renders
+  // identically whether or not the pending-auctions call ever answers.
+  function renderUpcoming(combined, rows, pendingCount){
+    const body = $("upcoming-body");
+    $("upcoming-count").textContent = rows.length + " confirmed" + (pendingCount ? " · " + pendingCount + " pending" : "");
 
     if (!combined.length){
       body.innerHTML = '<div class="state-row">No currently announced or pending auctions were found.</div>';

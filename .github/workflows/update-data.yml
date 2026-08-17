@@ -122,6 +122,19 @@ jobs:
           print(f"Trimmed {len(rows)} -> {len(kept)} records (cutoff {cutoff}).")
           PY
 
+      # The TGA and Debt-to-the-Penny cards used to call the Fiscal Data API
+      # from every visitor's browser on every page load. Both series publish
+      # once per business day and the API is slow to answer, so those two
+      # cards were consistently the last thing to appear on the page. This
+      # snapshots them here instead. index.html falls back to the live API if
+      # either file is missing or stale, so a failure here is not fatal —
+      # hence continue-on-error rather than failing the whole refresh.
+      - name: Snapshot TGA and debt series
+        continue-on-error: true
+        run: |
+          pip install --quiet requests
+          python3 scripts/fetch_fiscal_snapshot.py
+
       - name: Write fetch metadata
         run: |
           printf '{"fetchedAt":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > data/meta.json
@@ -130,7 +143,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/upcoming.json data/results.json data/meta.json
+          git add -A data/
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
@@ -147,7 +160,7 @@ jobs:
             echo "Push rejected (attempt $attempt) - fetching latest and retrying..."
             git fetch origin main
             git reset --soft origin/main
-            git add data/upcoming.json data/results.json data/meta.json
+            git add -A data/
             if git diff --cached --quiet; then
               echo "Remote already has this data (another run pushed the same update). Nothing left to do."
               exit 0
