@@ -30,6 +30,7 @@ MONTHS = 13
 # may change again — so this matches the way index.html always has, by
 # regex, rather than by an exact string that could silently stop matching.
 TGA_PATTERN = re.compile(r"treasury general account", re.I)
+CLOSING_PATTERN = re.compile(r"closing", re.I)
 
 
 def get(url):
@@ -71,6 +72,23 @@ def build_tga():
     tga = [r for r in rows if TGA_PATTERN.search(r.get("account_type") or "")]
     if not tga:
         raise SystemExit("No TGA rows found — refusing to write a snapshot.")
+
+    # Each date carries BOTH a "...(TGA) Opening Balance" row and a
+    # "...(TGA) Closing Balance" row, and the regex above matches both. Which
+    # one the API happens to return first for a given date is arbitrary, so
+    # without this the headline could silently be the opening balance on one
+    # day and the closing balance the next. Treasury's dataset notes also
+    # record that close_today_bal has been null since 18 Apr 2022 and that
+    # the real closing figure now sits in the opening-balance column of the
+    # "Closing Balance" row — which is why first_num() falls back the way it
+    # does. Prefer the closing rows; fall back to whatever TGA rows exist if
+    # the label changes again.
+    closing = [r for r in tga if CLOSING_PATTERN.search(r.get("account_type") or "")]
+    if closing:
+        tga = closing
+    else:
+        print("WARNING: no TGA closing-balance rows matched; using all TGA rows.",
+              file=sys.stderr)
 
     latest = tga[0]
     bal = first_num(latest, ["close_today_bal", "open_today_bal"])
