@@ -67,7 +67,7 @@ jobs:
           python3 - <<'PY'
           import json, datetime
 
-          KEEP_DAYS = 120  # comfortably wider than the dashboard's 45-day view
+          KEEP_DAYS = 60  # comfortably wider than the dashboard's 45-day view
 
           with open("data/results.json") as f:
               rows = json.load(f)
@@ -88,6 +88,33 @@ jobs:
               raise SystemExit("Trim matched 0 records — leaving results.json untouched.")
 
           with open("data/results.json", "w") as f:
+              json.dump(kept, f, separators=(",", ":"))
+
+          print(f"Trimmed {len(rows)} -> {len(kept)} records (cutoff {cutoff}).")
+          PY
+
+      # /securities/announced returns every auction announced so far this
+      # calendar year — 250 records at 120 fields, ~884 KB. loadUpcoming()
+      # discards everything before today, so 245 of those 250 records were
+      # downloaded on every page load purely to be thrown away. Keeping a
+      # week of history as a safety margin against timezone edges.
+      - name: Trim upcoming to announced-and-still-ahead
+        run: |
+          python3 - <<'PY'
+          import json, datetime
+
+          BACKSTOP_DAYS = 7
+
+          with open("data/upcoming.json") as f:
+              rows = json.load(f)
+
+          cutoff = (datetime.date.today() - datetime.timedelta(days=BACKSTOP_DAYS)).isoformat()
+          kept = [r for r in rows if ((r.get("auctionDate") or "")[:10]) >= cutoff]
+
+          if not kept:
+              raise SystemExit("Trim matched 0 records — leaving upcoming.json untouched.")
+
+          with open("data/upcoming.json", "w") as f:
               json.dump(kept, f, separators=(",", ":"))
 
           print(f"Trimmed {len(rows)} -> {len(kept)} records (cutoff {cutoff}).")
