@@ -40,19 +40,21 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Fetch upcoming (announced) auctions
         run: |
           mkdir -p data
-          curl -sSL --fail "https://www.treasurydirect.gov/TA_WS/securities/announced?format=json" -o data/upcoming.json
+          curl -sSL --fail --retry 5 --retry-delay 4 --retry-all-errors --connect-timeout 20 --max-time 180 \
+            "https://www.treasurydirect.gov/TA_WS/securities/announced?format=json" -o data/upcoming.json
           python3 -c "import json; d=json.load(open('data/upcoming.json')); assert isinstance(d, list)"
 
       - name: Fetch recent auction results
         run: |
           START=$(date -u -d '45 days ago' +%Y-%m-%d)
           END=$(date -u +%Y-%m-%d)
-          curl -sSL --fail "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startdate=${START}&enddate=${END}" -o data/results.json
+          curl -sSL --fail --retry 5 --retry-delay 4 --retry-all-errors --connect-timeout 20 --max-time 300 \
+            "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startdate=${START}&enddate=${END}" -o data/results.json
           python3 -c "import json; d=json.load(open('data/results.json')); assert isinstance(d, list)"
 
       # TreasuryDirect's /securities/search endpoint silently ignores the

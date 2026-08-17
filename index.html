@@ -928,13 +928,25 @@
   // The TGA closing-balance figure has lived under different column names as
   // DTS has evolved (Treasury's own notes flag this) — close_today_bal is the
   // current one, open_today_bal is the historical fallback if it's ever null.
+  const TGA_URL = `${FISCAL_BASE}/v1/accounting/dts/operating_cash_balance?fields=record_date,account_type,open_today_bal,close_today_bal&sort=-record_date`;
+
+  function tgaRowsFrom(json){
+    // The endpoint returns every account_type for each date, so the TGA rows
+    // have to be picked out here. Matched by regex rather than a server-side
+    // filter because the column has been renamed more than once as DTS has
+    // evolved, and Treasury's own notes flag that it may change again.
+    return (json.data || []).filter(r => /treasury general account/i.test(r.account_type || ""));
+  }
+
+  // The headline balance needs one recent row; the chart needs a year of
+  // them. Fetching both in a single 2,500-row request meant the card sat
+  // empty until the whole series arrived. These are two requests now: a
+  // small one that paints the number immediately, then the series for the
+  // chart underneath it. A failure of the second leaves the first standing.
   async function loadTGA(){
-    const url = `${FISCAL_BASE}/v1/accounting/dts/operating_cash_balance?fields=record_date,account_type,open_today_bal,close_today_bal&sort=-record_date&page[size]=2500`;
-    const res = await fetchFresh(url);
+    const res = await fetchFresh(`${TGA_URL}&page[size]=30`);
     if (!res.ok) throw new Error("operating_cash_balance HTTP " + res.status);
-    const json = await res.json();
-    const rows = json.data || [];
-    const tgaRows = rows.filter(r => /treasury general account/i.test(r.account_type || ""));
+    const tgaRows = tgaRowsFrom(await res.json());
     if (!tgaRows.length) throw new Error("no TGA rows found");
     const tga = tgaRows[0];
     const bal = firstNum(tga, ["close_today_bal","open_today_bal"]);
@@ -942,15 +954,31 @@
     $("stat-tga").textContent = fmtUSD(bal * 1e6, {compact:true});
     $("stat-tga-sub").textContent = "as of " + fmtDate(tga.record_date);
 
-    // 2-year trend, oldest -> newest, one point per date (TGA rows are
-    // already unique per date since we filtered to a single account_type).
-    const cutoff = new Date(new Date(tga.record_date).getTime() - 730 * 86400000);
-    const points = tgaRows
-      .filter(r => new Date(r.record_date) >= cutoff)
-      .map(r => ({ d: r.record_date, v: firstNum(r, ["close_today_bal","open_today_bal"]) }))
-      .filter(p => p.v !== null)
-      .reverse();
-    renderBarChart(aggregateMonthly(points.map(p => ({ d: p.d, v: p.v * 1e6 })), 13), { mountId: "tga-chart-mount", rangeId: "tga-chart-range", color: "#22c55e", label: "TGA balance, monthly" });
+    await loadTGAChart();
+  }
+
+  async function loadTGAChart(){
+    const mount = $("tga-chart-mount");
+    try {
+      // aggregateMonthly only ever renders the last 13 months, so a 400-day
+      // window is all the chart can display — the old 2,500-row request was
+      // pulling roughly twice what was drawn.
+      const res = await fetchFresh(`${TGA_URL}&page[size]=1600`);
+      if (!res.ok) throw new Error("operating_cash_balance HTTP " + res.status);
+      const tgaRows = tgaRowsFrom(await res.json());
+      if (!tgaRows.length) throw new Error("no TGA rows found");
+
+      const cutoff = new Date(new Date(tgaRows[0].record_date).getTime() - 400 * 86400000);
+      const points = tgaRows
+        .filter(r => new Date(r.record_date) >= cutoff)
+        .map(r => ({ d: r.record_date, v: firstNum(r, ["close_today_bal","open_today_bal"]) }))
+        .filter(p => p.v !== null)
+        .reverse();
+      renderBarChart(aggregateMonthly(points.map(p => ({ d: p.d, v: p.v * 1e6 })), 13), { mountId: "tga-chart-mount", rangeId: "tga-chart-range", color: "#22c55e", label: "TGA balance, monthly" });
+    } catch (e) {
+      console.error("Failed to load TGA trend:", e);
+      if (mount) mount.innerHTML = '<p class="state-row error-note">Trend data unavailable.</p>';
+    }
   }
 
   // ---------- Net interest, fiscal-year-to-date ----------
