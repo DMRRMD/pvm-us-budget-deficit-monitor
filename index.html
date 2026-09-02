@@ -1146,8 +1146,20 @@
     // reported in millions per Treasury's usual MTS convention.
     return Math.abs(n) >= 1e9 ? n : n * 1e6;
   }
+  const MTS_TABLE1_MONTH_NAMES = ["", "January","February","March","April","May","June",
+    "July","August","September","October","November","December"];
   async function loadMonthlyDeficitFromAPI(){
-    const url = `${FISCAL_BASE}/v1/accounting/mts/mts_table_1?sort=-record_date&page[size]=15`;
+    // MTS Table 1 rows aren't labeled "Total" — classification_desc is a
+    // month name (or "Year-to-Date"/"FY <year>" section header), and each
+    // record_date carries TWO rows per month name: one under the prior
+    // fiscal year's comparison section and one under the current fiscal
+    // year's section (e.g. two "July" rows with different figures). Same-
+    // date rows also aren't returned in a stable/grouped order, so a
+    // page[size] wide enough to capture every row for the latest date is
+    // needed (~26 rows/date; 60 gives headroom) and the right row must be
+    // picked by its actual parent/month fields, not by text-matching
+    // classification_desc or by row position.
+    const url = `${FISCAL_BASE}/v1/accounting/mts/mts_table_1?sort=-record_date&page[size]=60`;
     const res = await fetchFresh(url);
     if (!res.ok) throw new Error("mts_table_1 HTTP " + res.status);
     const json = await res.json();
@@ -1155,10 +1167,19 @@
     if (!rows.length) throw new Error("empty mts_table_1 series");
     const topDate = rows[0].record_date;
     const sameDate = rows.filter(r => r.record_date === topDate);
-    const totalRow = sameDate.find(r => /total/i.test(r.classification_desc || "")) || sameDate[0];
+    const fyLabel = "FY " + sameDate[0].record_fiscal_year;
+    const fyHeader = sameDate.find(r => r.parent_id === "null" && r.classification_desc === fyLabel);
+    if (!fyHeader) throw new Error("could not find " + fyLabel + " section in mts_table_1 for " + topDate);
+    const monthName = MTS_TABLE1_MONTH_NAMES[parseInt(sameDate[0].record_calendar_month, 10)];
+    const totalRow = sameDate.find(r =>
+      r.parent_id === fyHeader.classification_id &&
+      r.classification_desc === monthName &&
+      r.record_type_cd === "MTH"
+    );
+    if (!totalRow) throw new Error("no " + monthName + " row under " + fyLabel + " in mts_table_1 for " + topDate);
     const rcpt = firstNum(totalRow, ["current_month_gross_rcpt_amt","current_month_rcpt_amt"]);
     const outly = firstNum(totalRow, ["current_month_gross_outly_amt","current_month_outly_amt"]);
-    if (rcpt === null || outly === null) throw new Error("no monthly receipts/outlays figures found");
+    if (rcpt === null || outly === null) throw new Error("no monthly receipts/outlays figures found for " + monthName + " " + fyLabel);
     const rcptDollars = normalizeFlowToDollars(rcpt);
     const outlyDollars = normalizeFlowToDollars(outly);
     const balance = outlyDollars - rcptDollars; // positive = deficit
