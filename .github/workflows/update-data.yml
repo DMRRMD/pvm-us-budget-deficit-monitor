@@ -51,10 +51,19 @@ jobs:
 
       - name: Fetch recent auction results
         run: |
-          START=$(date -u -d '45 days ago' +%Y-%m-%d)
+          START=$(date -u -d '60 days ago' +%Y-%m-%d)
           END=$(date -u +%Y-%m-%d)
-          curl -sSL --fail --retry 5 --retry-delay 4 --retry-all-errors --connect-timeout 20 --max-time 300 \
-            "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startdate=${START}&enddate=${END}" -o data/results.json
+          CURL="curl -sSL --fail --retry 5 --retry-delay 4 --retry-all-errors --connect-timeout 20 --max-time 300"
+          # TreasuryDirect's documented parameters are camelCase (startDate /
+          # endDate / dateFieldName). The old lowercase startdate/enddate were
+          # silently ignored, which is why the whole archive used to come back.
+          $CURL "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&dateFieldName=auctionDate&startDate=${START}&endDate=${END}" -o data/results.json
+          # If that still returns nothing recent, fall back to the
+          # "auctioned in the last N days" endpoint.
+          if ! python3 scripts/has_recent_auctions.py data/results.json 60; then
+            echo "search returned no recent auctions; falling back to /securities/auctioned"
+            $CURL "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=json&days=60" -o data/results.json
+          fi
           python3 -c "import json; d=json.load(open('data/results.json')); assert isinstance(d, list)"
 
       # TreasuryDirect's /securities/search endpoint silently ignores the
@@ -87,6 +96,9 @@ jobs:
           # Never write an empty file: if the shape or field name ever changes
           # upstream, keep the full payload rather than blanking the table.
           if not kept:
+              dates = sorted((r.get("auctionDate") or "")[:10] for r in rows if isinstance(r, dict))
+              print(f"Diagnostics: {len(rows)} records; auctionDate range "
+                    f"{dates[0] if dates else '-'} .. {dates[-1] if dates else '-'}; cutoff {cutoff}")
               raise SystemExit("Trim matched 0 records — leaving results.json untouched.")
 
           with open("data/results.json", "w") as f:
