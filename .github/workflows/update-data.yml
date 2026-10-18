@@ -54,14 +54,15 @@ jobs:
           START=$(date -u -d '60 days ago' +%Y-%m-%d)
           END=$(date -u +%Y-%m-%d)
           CURL="curl -sSL --fail --retry 5 --retry-delay 4 --retry-all-errors --connect-timeout 20 --max-time 300"
-          # TreasuryDirect's documented parameters are camelCase (startDate /
-          # endDate / dateFieldName). The old lowercase startdate/enddate were
-          # silently ignored, which is why the whole archive used to come back.
-          $CURL "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&dateFieldName=auctionDate&startDate=${START}&endDate=${END}" -o data/results.json
-          # If that still returns nothing recent, fall back to the
+          # TreasuryDirect's date parameters are camelCase (startDate /
+          # endDate). The old lowercase startdate/enddate were silently
+          # ignored, which is why the whole archive used to come back.
+          # Don't add dateFieldName=auctionDate: the API answers that with a 500.
+          # If the search fails or returns nothing recent, fall back to the
           # "auctioned in the last N days" endpoint.
-          if ! python3 scripts/has_recent_auctions.py data/results.json 60; then
-            echo "search returned no recent auctions; falling back to /securities/auctioned"
+          if ! $CURL "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startDate=${START}&endDate=${END}" -o data/results.json \
+             || ! python3 scripts/has_recent_auctions.py data/results.json 60; then
+            echo "search failed or returned no recent auctions; falling back to /securities/auctioned"
             $CURL "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=json&days=60" -o data/results.json
           fi
           python3 -c "import json; d=json.load(open('data/results.json')); assert isinstance(d, list)"
