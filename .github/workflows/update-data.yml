@@ -52,7 +52,10 @@ jobs:
       - name: Fetch recent auction results
         run: |
           START=$(date -u -d '60 days ago' +%Y-%m-%d)
-          END=$(date -u +%Y-%m-%d)
+          # startDate/endDate filter on issueDate, not auctionDate. Bills issue
+          # several days after they auction, so END=today drops the most recent
+          # results. Look 30 days ahead to cover any auction-to-issue gap.
+          END=$(date -u -d '30 days' +%Y-%m-%d)
           CURL="curl -sSL --fail --retry 5 --retry-delay 4 --retry-all-errors --connect-timeout 20 --max-time 300"
           # TreasuryDirect's date parameters are camelCase (startDate /
           # endDate). The old lowercase startdate/enddate were silently
