@@ -1101,6 +1101,18 @@
   // (see tryLoadMonthlyDeficitFromLocalJSON above for why this beats the
   // Fiscal Data API on freshness). Returns true on success so the caller
   // can skip the API fallback.
+  // record_period is "August 2026". new Date("August 2026 1") parses as
+  // local midnight, which east of UTC is the last day of the previous month
+  // in UTC, so getUTCMonth() came back one month early and the staleness
+  // guard rejected a current file. Build the date in UTC directly.
+  function parseRecordPeriod(s){
+    const m = /^([A-Za-z]+)\s+(\d{4})$/.exec(String(s || "").trim());
+    if (!m) return null;
+    const month = MTS_TABLE1_MONTH_NAMES.findIndex(n => n && n.toLowerCase() === m[1].toLowerCase());
+    if (month < 1) return null;
+    return new Date(Date.UTC(parseInt(m[2], 10), month - 1, 1));
+  }
+
   async function tryLoadNetInterestFromLocalJSON(){
     let json;
     try {
@@ -1112,8 +1124,8 @@
     const { record_period, net_interest_fytd_millions } = json;
     if (typeof net_interest_fytd_millions !== "number" || !record_period) return false;
 
-    const recordDate = new Date(record_period + " 1");
-    if (isNaN(recordDate.getTime())) return false;
+    const recordDate = parseRecordPeriod(record_period);
+    if (!recordDate) return false;
     const now = new Date();
     const ageMonths = (now.getUTCFullYear() - recordDate.getUTCFullYear()) * 12
       + (now.getUTCMonth() - recordDate.getUTCMonth());
@@ -1207,8 +1219,8 @@
     const { record_period, month_deficit_millions } = json;
     if (typeof month_deficit_millions !== "number" || !record_period) return false;
 
-    const recordDate = new Date(record_period + " 1");
-    if (isNaN(recordDate.getTime())) return false;
+    const recordDate = parseRecordPeriod(record_period);
+    if (!recordDate) return false;
     const now = new Date();
     const ageMonths = (now.getUTCFullYear() - recordDate.getUTCFullYear()) * 12
       + (now.getUTCMonth() - recordDate.getUTCMonth());
