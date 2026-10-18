@@ -51,19 +51,34 @@ jobs:
 
       - name: Fetch recent auction results
         run: |
-          START=$(date -u -d '45 days ago' +%Y-%m-%d)
-          END=$(date -u +%Y-%m-%d)
-          curl -sSL --fail --retry 5 --retry-delay 4 --retry-all-errors --connect-timeout 20 --max-time 300 \
-            "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startdate=${START}&enddate=${END}" -o data/results.json
+          START=$(date -u -d '60 days ago' +%Y-%m-%d)
+          # startDate/endDate filter on issueDate, not auctionDate. Bills issue
+          # several days after they auction, so END=today drops the most recent
+          # results. Look 30 days ahead to cover any auction-to-issue gap.
+          END=$(date -u -d '30 days' +%Y-%m-%d)
+          CURL="curl -sSL --fail --retry 5 --retry-delay 4 --retry-all-errors --connect-timeout 20 --max-time 300"
+          # TreasuryDirect's date parameters are camelCase (startDate /
+          # endDate). The old lowercase startdate/enddate were silently
+          # ignored, which is why the whole archive used to come back.
+          # Don't add dateFieldName=auctionDate: the API answers that with a 500.
+          # If the search fails or returns nothing recent, fall back to the
+          # "auctioned in the last N days" endpoint.
+          if ! $CURL "https://www.treasurydirect.gov/TA_WS/securities/search?format=json&startDate=${START}&endDate=${END}" -o data/results.json \
+             || ! python3 scripts/has_recent_auctions.py data/results.json 60; then
+            echo "search failed or returned no recent auctions; falling back to /securities/auctioned"
+            $CURL "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=json&days=60" -o data/results.json
+          fi
           python3 -c "import json; d=json.load(open('data/results.json')); assert isinstance(d, list)"
 
-      # TreasuryDirect's /securities/search endpoint silently ignores the
-      # startdate/enddate parameters above and returns its entire archive
-      # back to 1979 — ~11,000 records at 120 fields each, about 37 MB. The
-      # dashboard only ever renders the trailing window (and only the top 20
-      # rows of it), but the browser was downloading all 37 MB on every page
-      # load and again on every 5-minute auto-refresh. Trimming here is the
-      # only reliable place to do it, since the API won't honour the filter.
+      # TreasuryDirect renamed most fields around 2026-10-17 (auctionDate ->
+      # competitiveAuctionCloseDate, etc.). index.html and the trims below
+      # still read the old names, so copy the new fields back under them.
+      - name: Normalise TreasuryDirect schema to legacy field names
+        run: python3 scripts/normalize_td_schema.py data/results.json data/upcoming.json
+
+      # The camelCase date filter above now limits the search server-side;
+      # this trim stays as a safety net so a full-archive response (~48 MB)
+      # never reaches the browser.
       - name: Trim results to the trailing window
         run: |
           python3 - <<'PY'
@@ -87,6 +102,9 @@ jobs:
           # Never write an empty file: if the shape or field name ever changes
           # upstream, keep the full payload rather than blanking the table.
           if not kept:
+              dates = sorted((r.get("auctionDate") or "")[:10] for r in rows if isinstance(r, dict))
+              print(f"Diagnostics: {len(rows)} records; auctionDate range "
+                    f"{dates[0] if dates else '-'} .. {dates[-1] if dates else '-'}; cutoff {cutoff}")
               raise SystemExit("Trim matched 0 records — leaving results.json untouched.")
 
           with open("data/results.json", "w") as f:
