@@ -39,7 +39,13 @@ on:
     # script itself sleeps until close to the real release time (or exits
     # immediately if it's not close yet) rather than relying on cron to hit
     # the exact minute. Adjust day-of-month as needed per Treasury's calendar.
-    - cron: "0 17 8-12 * *"
+    # Days run to the 20th because the September (fiscal year-end) statement
+    # comes out later than the usual 8th-workday window. The 18:15/19:15 slots
+    # land just after a 2:00 p.m. EDT/EST release, which matters when there is
+    # no announced time to sleep towards (see resolve_release_params.py).
+    - cron: "0 17 8-20 * *"
+    - cron: "15 18 8-20 * *"
+    - cron: "15 19 8-20 * *"
 
 concurrency:
   group: mts-release-poll
@@ -71,19 +77,27 @@ jobs:
             echo "release_time=${{ github.event.inputs.release_time }}" >> "$GITHUB_OUTPUT"
             echo "Using workflow_dispatch inputs."
           elif python scripts/resolve_release_params.py data/deficit_latest.json >> "$GITHUB_OUTPUT"; then
-            echo "Resolved from data/deficit_latest.json next_release block."
+            echo "Resolved from data/deficit_latest.json (next_release block, or the month after record_period)."
           else
-            echo "::error::No workflow_dispatch inputs given, and data/deficit_latest.json has no usable next_release block to fall back on. Run this workflow once manually with explicit inputs to seed it."
+            echo "::error::No workflow_dispatch inputs given, and data/deficit_latest.json has neither a next_release block nor a record_period to fall back on. Run this workflow once manually with explicit inputs to seed it."
             exit 1
           fi
 
       - name: Poll for MTS PDF and parse deficit
         run: |
+          # With no announced release time, just check whether the statement
+          # is out yet; a later scheduled run picks it up if not.
+          if [ -z "${{ steps.params.outputs.release_time }}" ]; then
+            EXTRA="--missing-ok"; ATTEMPTS=3
+          else
+            EXTRA=""; ATTEMPTS=90
+          fi
           python scripts/fetch_mts_pdf.py \
             --year "${{ steps.params.outputs.year }}" \
             --month "${{ steps.params.outputs.month }}" \
             --release-time "${{ steps.params.outputs.release_time }}" \
-            --max-attempts 90 \
+            $EXTRA \
+            --max-attempts "$ATTEMPTS" \
             --interval-seconds 10 \
             --pre-poll-seconds 120 \
             --max-sleep-seconds 900 \

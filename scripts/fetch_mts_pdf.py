@@ -294,6 +294,15 @@ def main() -> int:
         ),
     )
     ap.add_argument(
+        "--missing-ok",
+        action="store_true",
+        help=(
+            "Exit 0 instead of 1 if the PDF isn't available after --max-attempts. "
+            "For scheduled runs with no announced release time, which just check "
+            "whether the statement is out yet."
+        ),
+    )
+    ap.add_argument(
         "--output",
         type=str,
         default="data/deficit_latest.json",
@@ -324,6 +333,9 @@ def main() -> int:
             args.year, args.month, args.max_attempts, args.interval_seconds
         )
     except TimeoutError as e:
+        if args.missing_ok:
+            print(f"{e} — not released yet, nothing to do (--missing-ok).", file=sys.stderr)
+            return 0
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 
