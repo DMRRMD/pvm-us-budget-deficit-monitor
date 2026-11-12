@@ -1,14 +1,14 @@
 {
-  "record_period": "September 2026",
-  "month_deficit_millions": -26900.0,
-  "fytd_deficit_millions": -1992473.0,
-  "net_interest_fytd_millions": 1051754.0,
+  "record_period": "October 2026",
+  "month_deficit_millions": -404064.0,
+  "fytd_deficit_millions": -404064.0,
+  "net_interest_fytd_millions": 103076.0,
   "source": "mts_pdf",
-  "source_url": "https://fiscaldata.treasury.gov/static-data/published-reports/mts/MonthlyTreasuryStatement_202609.pdf",
-  "fetched_at": "2026-10-18T12:14:51.066788+00:00",
+  "source_url": "https://fiscaldata.treasury.gov/static-data/published-reports/mts/MonthlyTreasuryStatement_202610.pdf",
+  "fetched_at": "2026-11-12T22:34:02.854989+00:00",
   "next_release": {
     "report_year": 2026,
-    "report_month": 10,
-    "release_time": "2026-11-12T14:00:00-05:00"
+    "report_month": 11,
+    "release_time": "2026-12-10T14:00:00-05:00"
   }
 }
