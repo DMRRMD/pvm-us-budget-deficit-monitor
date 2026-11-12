@@ -1,0 +1,52 @@
+name: Poll Pending Auction Results
+
+# Closes the gap between "an auction closed" and "its result is on the dashboard".
+#
+# TreasuryDirect posts results ~3-5 minutes after the close, but the external
+# per-minute dispatcher for "Update Treasury Data" stops at the close itself, and
+# GitHub's own cron is too unreliable to cover the gap (hours between runs). This
+# workflow is state-driven: scripts/poll_pending_results.py checks whether any
+# auction is about to close, or has closed without a published result, and if so
+# polls TreasuryDirect directly until it appears, then dispatches the normal
+# refresh once. With nothing pending it exits in a few seconds.
+#
+# Triggers:
+#   - workflow_run: every time "Update Treasury Data" finishes (the dispatcher
+#     fires it each minute through its windows, so this needs no extra
+#     scheduler and is not subject to cron throttling).
+#   - schedule: a few best-effort starts just before the :30 and :00 closes, for
+#     the case where the dispatcher is down. Cron is UTC; the script itself
+#     works in America/New_York, so daylight saving needs no edits here.
+#   - workflow_dispatch: manual run.
+
+on:
+  workflow_run:
+    workflows: ["Update Treasury Data"]
+    types: [completed]
+  schedule:
+    - cron: "27,57 14-18 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: write   # lets the script dispatch "Update Treasury Data" with GITHUB_TOKEN
+
+# One poller at a time; a second trigger waits instead of cancelling a poll that
+# is mid-wait for a result.
+concurrency:
+  group: poll-pending-results
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Wait for pending results, then refresh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/poll_pending_results.py --max-minutes 20
